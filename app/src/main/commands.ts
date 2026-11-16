@@ -176,7 +176,8 @@ export function registerCommands(ctl: ProjectController, handle: Handle, on: On)
   });
   handle('dxf:view', (rel: unknown, known: unknown) => viewDxf(dir(), String(rel), known == null ? null : String(known)));
 
-  handle('term:create', (opts?: { command?: string }) => ctl.need().terminals.create(opts));
+  handle('term:create', (opts?: { command?: string; title?: string }) => ctl.need().terminals.create(opts));
+  handle('term:list', () => ctl.session?.terminals.list() ?? []);
   on('term:write', (id: number, data: string) => ctl.session?.terminals.write(id, data));
   on('term:resize', (id: number, cols: number, rows: number) => ctl.session?.terminals.resize(id, cols, rows));
   on('term:kill', (id: number) => ctl.session?.terminals.kill(id));

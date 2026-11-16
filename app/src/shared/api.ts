@@ -87,6 +87,7 @@ export function createSomaApi(t: Transport, env: ApiEnv): SomaApi {
     dxf: { view: (rel, known) => t.invoke('dxf:view', rel, known ?? null) },
     term: {
       create: (opts) => t.invoke('term:create', opts),
+      list: () => t.invoke('term:list'),
       write: (id, data) => t.send('term:write', id, data),
       resize: (id, cols, rows) => t.send('term:resize', id, cols, rows),
       kill: (id) => t.send('term:kill', id),

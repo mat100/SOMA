@@ -3,6 +3,7 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { Terminal } from '@xterm/xterm';
 import { icon } from './icons';
 import { el, toast } from './ui';
+import type { TerminalInfo } from '../shared/types';
 
 interface Tab { id: number; term: Terminal; fit: FitAddon; pane: HTMLElement; tab: HTMLElement; title: string; agent: boolean; exited: boolean }
 
@@ -45,14 +46,40 @@ export class TerminalTabs {
   async add(opts: { command?: string; title?: string } = {}): Promise<number | null> {
     // Vor dem Anlegen der Shell warten: Danach darf bis zum Eintrag in `tabs` nichts mehr warten, sonst gehen Ausgaben verloren
     await fontsReady;
+    const title = opts.title ?? (this.tabs.size ? `Terminal ${this.tabs.size + 1}` : 'Terminal');
     let id: number;
     try {
-      id = await window.soma.term.create({ command: opts.command });
+      id = await window.soma.term.create({ command: opts.command, title });
     } catch (e) {
       // Shell startet nicht (fehlt, keine Rechte): sagen, statt still kein Terminal zu zeigen
       toast(String(e instanceof Error ? e.message : e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'error');
       return null;
     }
+    this.open(id, title, !!opts.command);
+    this.activate(id);
+    return id;
+  }
+
+  /**
+   * Shows the terminals of the open model that are already running (the web version after a reload: the shells and the
+   * agents in them stay on the server), with their latest output. Number of terminals, 0 when there were none.
+   */
+  async resume(): Promise<number> {
+    // Before asking: from the answer on, nothing may wait until the tabs exist, or output gets lost (as in add)
+    await fontsReady;
+    let list: TerminalInfo[];
+    try { list = await window.soma.term.list(); } catch { return 0; }
+    for (const t of list) {
+      if (this.tabs.has(t.id)) continue;
+      this.open(t.id, t.title, t.agent).write(t.output);
+    }
+    const last = list[list.length - 1];
+    if (last) this.activate(last.id);
+    return list.length;
+  }
+
+  /** Tab and xterm for a shell that runs (created or resumed). */
+  private open(id: number, title: string, agent: boolean): Terminal {
     const term = new Terminal({
       fontFamily: '"IBM Plex Mono", "Cascadia Mono", Consolas, monospace', fontSize: 13, lineHeight: 1, cursorBlink: true, scrollback: 5000,
       fontWeight: '400', fontWeightBold: '700',
@@ -88,8 +115,6 @@ export class TerminalTabs {
     });
     term.onResize(({ cols, rows }) => window.soma.term.resize(id, cols, rows));
 
-    const agent = !!opts.command;
-    const title = opts.title ?? (this.tabs.size ? `Terminal ${this.tabs.size + 1}` : 'Terminal');
     const label = el('button', { className: 't', title: agent ? `${title} runs in a shell in the model folder` : 'Shell in the model folder' },
       agent ? el('span', { className: 'dot' }) : icon('term', 14, 2), el('span', { textContent: title }));
     const x = el('button', { className: 'x', title: `Close ${title}` }, icon('x', 12, 2.2));
@@ -100,8 +125,7 @@ export class TerminalTabs {
     this.tabBar.insertBefore(tab, this.anchor);
 
     this.tabs.set(id, { id, term, fit, pane, tab, title, agent, exited: false });
-    this.activate(id);
-    return id;
+    return term;
   }
 
   activate(id: number): void {

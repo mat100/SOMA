@@ -34,6 +34,8 @@ Details in `app/README.md`.
 - CLI: `soma build`, `export`, `glb`, `serve` (measuring service, `measure.py`), `anim` (`anim.py`, `animrun.py`), `analyze` (`analysis.py`, FEM in `fem.py`, CalculiX via `ccx.py`, E84), `drawing` (`drawing.py`, `drawrun.py`, E76), `dxfview` (E80), `render` (only via the app), `env` (`env.py`, `.soma/env` and `requirements.txt`, E67).
 - `python/scripts/`: `setup_env.ps1` (development environment from `python/requirements-base.txt`), `fetch_ccx.py` (CalculiX), `build_runtime.py` (standalone base environment for the installation packages).
 
+**`web/`** SOMA in the browser (`web/README.md`): a Node server hosts the main process of `app/` (platform port `web/server/platform.ts`, WebSocket instead of IPC), the page runs the renderer of `app/`. `server/` (`main.ts`, `tabs.ts` one tab with the session, `http.ts` token and cookie, `files.ts` uploads and downloads, `render.ts` render frames in the tab), `client/` (`transport.ts`, `files.ts` file dialogs, `render.ts` the render page), `shared/` (`codec.ts` binary messages, `protocol.ts`, `files.ts`), `test/` (unit and server tests, `harness-web.mjs`: the suites of `app/test/` against the web with `SOMA_TEST_TARGET=web`).
+
 **`design/`** UI drafts, local only (in `.gitignore`, in the Git history up to `v0.8.0`), open in a browser, arrow keys to page
 - `startseite-entwurf.html` (implemented): start page with Recent first, New model and Open next to the title, compact agents, update label next to the version.
 - `ui-entwurf-2.html` "Aufgeräumt" (E62): reference for layout, colors and texts. Image 6 is the parameter panel (E74).
@@ -60,6 +62,12 @@ node test/run-all.mjs smoke editor   # single suites in parallel, after npm run 
 npm run test:unit                    # without build, checks the version number among other things
 npm run help:shots                   # regenerate the images of the user guide
 npm run dist                         # installation package for this system, run build_runtime.py first (app/README.md)
+
+# web version (in web/, needs npm install in app/ too)
+npm install
+npm start                            # builds and starts the server, prints the address with the token
+npm test                             # builds, unit and server tests
+SOMA_TEST_TARGET=web node ../app/test/run-all.mjs   # the suites of the desktop app against the web (after npm run build)
 
 # soma directly
 "$LOCALAPPDATA/soma-dev/venv/Scripts/soma.exe" build --project <folder>

@@ -452,6 +452,9 @@ export interface ResultMeta {
 export interface ResultEntry extends ResultMeta { file: string; stale: boolean }
 
 /** Auftrag an das unsichtbare Render-Fenster (E58). Die Dateien kommen als Inhalt mit, das Fenster liest selbst nichts. */
+/** A running terminal (term.list): tab title, started for an agent, the end of its output to show again. */
+export interface TerminalInfo { id: number; title: string; agent: boolean; output: string }
+
 export interface RenderJob {
   id: number; kind: 'still' | 'sheet' | 'video'; width: number; height: number;
   view: string | null; at: number; grid: [number, number]; fps: number;
@@ -565,6 +568,8 @@ export interface SomaApi {
   dxf: { view(rel: string, known?: string | null): Promise<DxfResult> };
   term: {
     create(opts?: { command?: string; title?: string }): Promise<number>;
+    /** Terminals of the open model that are still running, with their latest output (the web version after a reload). */
+    list(): Promise<TerminalInfo[]>;
     write(id: number, data: string): void;
     resize(id: number, cols: number, rows: number): void;
     kill(id: number): void;

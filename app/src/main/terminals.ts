@@ -5,6 +5,7 @@ import { bridgeEnv } from './bridge';
 import { envPaths } from './packages';
 import { gitCmdDir, pythonBinDirs, pythonEnv } from './paths';
 import { platform } from './platform';
+import type { TerminalInfo } from '../shared/types';
 
 /**
  * Umgebung fuer Terminals: vorn im PATH die Projektumgebung (E67, `python` sieht Basis und Zusatzpakete), dahinter die
@@ -32,15 +33,38 @@ export function terminalEnv(projectDir: string): NodeJS.ProcessEnv {
  */
 let nextId = 1;
 
+/** Output kept per terminal for a page that shows it again (term.list, a reload in the web version). */
+const KEEP_OUTPUT = 256 * 1024;
+
+/** The latest output of a terminal, about KEEP_OUTPUT characters. */
+class OutputTail {
+  private chunks: string[] = [];
+  private size = 0;
+  private cut = false;
+  add(d: string): void {
+    this.chunks.push(d);
+    this.size += d.length;
+    while (this.size > KEEP_OUTPUT && this.chunks.length > 1) { this.size -= this.chunks.shift()!.length; this.cut = true; }
+  }
+  text(): string {
+    let s = this.chunks.join('');
+    if (s.length > KEEP_OUTPUT) { s = s.slice(-KEEP_OUTPUT); this.cut = true; }
+    // Cut off at the front: start with the next line, a half escape sequence would show as garbage
+    if (this.cut) { const nl = s.indexOf('\n'); if (nl >= 0) s = s.slice(nl + 1); }
+    return s;
+  }
+}
+
 /** Verwaltet die Terminals eines Projekts. Jedes ist eine normale Shell im Projektordner (E19). */
 export class TerminalManager {
   private terms = new Map<number, pty.IPty>();
+  private info = new Map<number, { title: string; agent: boolean; output: OutputTail }>();
   /** Getippte Zeile je Terminal, nur um einen von Hand gestarteten Agenten zu protokollieren (track). null: unzuverlässig. */
   private typed = new Map<number, string | null>();
 
   constructor(private readonly dir: string) {}
 
-  create(opts: { command?: string } = {}): number {
+  create(opts: { command?: string; title?: string } = {}): number {
     const win = process.platform === 'win32';
     const shell = win ? 'powershell.exe' : (process.env.SHELL || 'bash');
     let p: pty.IPty;
@@ -54,16 +78,24 @@ export class TerminalManager {
     }
     const id = nextId++;
     this.terms.set(id, p);
+    const output = new OutputTail();
+    this.info.set(id, { title: String(opts.title ?? 'Terminal').slice(0, 200), agent: !!opts.command, output });
     if (opts.command) logAgentStart(opts.command, 'button', terminalEnv(this.dir));
-    p.onData((d) => platform().send('term:data', id, d));
+    p.onData((d) => { output.add(d); platform().send('term:data', id, d); });
     p.onExit(({ exitCode }) => {
       this.terms.delete(id);
       this.typed.delete(id);
+      this.info.delete(id);
       platform().send('term:exit', id, exitCode);
     });
     // Ein Startbefehl (z. B. der Agent) wird sichtbar in die Shell getippt. Endet er, bleibt die Shell offen.
     if (opts.command) setTimeout(() => p.write(opts.command + '\r'), 400);
     return id;
+  }
+
+  /** Running terminals in the order they were started. */
+  list(): TerminalInfo[] {
+    return [...this.info].map(([id, i]) => ({ id, title: i.title, agent: i.agent, output: i.output.text() }));
   }
 
   write(id: number, data: string): void {
@@ -98,7 +130,7 @@ export class TerminalManager {
   resize(id: number, cols: number, rows: number): void {
     if (cols > 0 && rows > 0) { try { this.terms.get(id)?.resize(cols, rows); } catch { /* Terminal schon beendet */ } }
   }
-  kill(id: number): void { try { this.terms.get(id)?.kill(); } catch { /* schon beendet */ } this.terms.delete(id); this.typed.delete(id); }
+  kill(id: number): void { try { this.terms.get(id)?.kill(); } catch { /* schon beendet */ } this.terms.delete(id); this.typed.delete(id); this.info.delete(id); }
   killAll(): void { for (const id of [...this.terms.keys()]) this.kill(id); }
 
   /**

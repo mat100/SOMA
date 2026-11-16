@@ -1241,7 +1241,8 @@ async function onProject(p: ProjectInfo): Promise<void> {
   // SOMA AI is in front unless the user prefers a terminal (tests keep the terminal, their suites type into it)
   const wantChat = !chatTab.hidden && (store.get('soma.agentTab') ?? (api.testMode ? 'terminal' : 'ai')) === 'ai';
   // Ready when the agent area shows what it should (the loading screen of "New model" waits for it)
-  const agentReady = terminals.add({ title: 'Terminal' }).then(() => (wantChat ? showChat(true) : undefined));
+  // Terminals still running for this model (web version after a reload) come back, otherwise a new one
+  const agentReady = terminals.resume().then((n) => (n ? null : terminals.add({ title: 'Terminal' }))).then(() => (wantChat ? showChat(true) : undefined));
   void refreshAgents();
   const st = await api.build.status();
   renderBuild(st);

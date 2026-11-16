@@ -305,7 +305,7 @@ try {
     && !!ab.info.python.version && !!py('cadquery')?.version && !!py('cadquery')?.license && !!py('cadquery-ocp') && ab.text.includes(`SOMA ${VERSION}`) && ab.text.includes('CadQuery'),
     `${py('soma')?.version} / ${py('cadquery')?.version} ${py('cadquery')?.license}`);
   check('About: Komponenten der App aus components.json (three, xterm mit Lizenz), Electron, Git, vier Agenten geprüft',
-    ab.info.components.some((c) => c.name === 'three' && c.license === 'MIT') && ab.info.components.some((c) => c.name === '@xterm/xterm') && !!ab.info.electron && !!ab.info.git
+    ab.info.components.some((c) => c.name === 'three' && c.license === 'MIT') && ab.info.components.some((c) => c.name === '@xterm/xterm') && (app.web || !!ab.info.electron) && !!ab.info.git
     && ab.info.agents.length === 4 && ab.text.includes('Claude Code'), `${ab.info.components.length} Komponenten, Git ${ab.info.git}`);
   await shot('settings-4-about');
   await ev(() => document.querySelector('#st-about [data-act="copy"]').click());

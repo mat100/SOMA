@@ -23,6 +23,8 @@ const portFree = (port) => new Promise((resolve) => {
  * Umgebungsvariablen (etwa `SOMA_TEST_START: 'home'`: Start auf der Startseite wie außerhalb der Tests, statt gleich mit einem Modell).
  */
 export async function startApp({ port = Number(process.env.SOMA_TEST_PORT) || 9333, userData, watchdogMs = (Number(process.env.SOMA_TEST_WATCHDOG_S) || 6 * 60) * 1000, name = 'test', env = {} } = {}) {
+  // SOMA_TEST_TARGET=web: the same suite against the web version (web/test/harness-web.mjs: web server and Chromium)
+  if (process.env.SOMA_TEST_TARGET === 'web') return (await import('../../web/test/harness-web.mjs')).startWebApp({ userData, watchdogMs, name, env });
   // SMOKE_VISIBLE=1 sichtbar, =offscreen angezeigt außerhalb des Bildschirms (frische Screenshots, kein Fokusklau), sonst unsichtbar
   const mode = process.env.SMOKE_VISIBLE;
   const visible = mode === '1';

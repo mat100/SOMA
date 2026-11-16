@@ -17,6 +17,7 @@ import { SOMA_VERSION } from '../../app/src/shared/version';
 import { Files, listDir } from './files';
 import { authorized, handleLogin, sameOrigin, serveStatic, type AuthMode } from './http';
 import { webPlatform } from './platform';
+import { RenderFrames } from './render';
 import { Tabs, type Conn } from './tabs';
 
 /*
@@ -119,7 +120,8 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
 });
 
 const files = new Files(userData, (url, name) => tabs.request('web:download', [url, name]));
-setPlatform(webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files));
+const renderFrames = new RenderFrames(tabs);
+setPlatform(webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files, renderFrames));
 // As Electron's main process: an error nobody caught is in the log (log.ts writes it), the server keeps running
 process.on('uncaughtException', () => {});
 // The main process reads SOMA_USER_DATA (paths.ts); the same folder for everything, terminals included
@@ -181,10 +183,10 @@ function pageReady(conn: Conn): void {
   }
 }
 
-// ---- Render page (render.ts), comes with the render step of the web version ---------------------------------------------
+// ---- Render pages (render.ts) -----------------------------------------------------------------------------------------------
 
-function renderEvents(_conn: Conn, _ch: string, _args: unknown[]): void { /* not yet */ }
-function renderGone(_conn: Conn): void { /* not yet */ }
+function renderEvents(conn: Conn, ch: string, args: unknown[]): void { renderFrames.message(conn, ch, args); }
+function renderGone(conn: Conn): void { renderFrames.gone(conn); }
 
 // ---- Commands ------------------------------------------------------------------------------------------------------------
 
@@ -225,7 +227,8 @@ const server = http.createServer((req, res) => {
   serveStatic(res, PUBLIC_DIR, route, req.method === 'HEAD');
 });
 
-const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 * 1024 });
+// A finished video comes back from the render page in one message, as over IPC on the desktop: up to 1 GB
+const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 * 1024 });
 server.on('upgrade', (req, socket, head) => {
   const url = requestUrl(req);
   if (!url || stripBase(url.pathname) !== '/ws' || !authorized(req, auth) || !sameOrigin(req, origins, auth.kind === 'proxy')) {

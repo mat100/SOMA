@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { OpenDialogOptions, Platform, RenderWindow, SaveDialogOptions } from '../../app/src/main/platform';
+import type { OpenDialogOptions, Platform, SaveDialogOptions } from '../../app/src/main/platform';
 import { checkOpenAnswer, checkSaveAnswer } from '../shared/files';
 import { insideRoot, type Files } from './files';
+import type { RenderFrames } from './render';
 import type { Tabs } from './tabs';
 
 export interface WebConfig {
@@ -18,7 +19,7 @@ export interface WebConfig {
  * What only a browser can do (open a link, copy to the clipboard, choose files) the tab is asked for (Tabs.request,
  * channels `web:*`). Files come in as uploads and go out as downloads (files.ts).
  */
-export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files): Platform {
+export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: RenderFrames): Platform {
   const root = cfg.filesRoot;
   return {
     userData: () => cfg.userData,
@@ -73,11 +74,8 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files): Platform 
     },
     writeClipboard: async (text) => { await tabs.request('web:clipboard', [text]); },
     fetch: (url, init) => fetch(url, init),
-    openRenderWindow: (): RenderWindow => {
-      const ready = Promise.reject(new Error('Rendering images and videos is not available in the browser version yet.'));
-      ready.catch(() => {});
-      return { ready, send: () => {}, close: () => {} };
-    },
+    // In the user's tab, with the GPU of their computer (render.ts)
+    openRenderWindow: (events) => renders.open(events),
   };
 }
 

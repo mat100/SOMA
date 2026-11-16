@@ -1,5 +1,6 @@
 import { createSomaApi } from '../../app/src/shared/api';
 import { closeDialogs, fileRequests } from './files';
+import { removeRenderFrames, renderFrames } from './renderframe';
 import { WsTransport } from './transport';
 import { showOffline, showStopped, webRequests } from './webui';
 
@@ -17,12 +18,13 @@ void (async () => {
   const t = new WsTransport('main', {
     offline: () => { closeDialogs(); showOffline(true); },
     online: () => showOffline(false),
-    stopped: (reason, message) => showStopped(reason, message),
+    stopped: (reason, message) => { closeDialogs(); removeRenderFrames(); showStopped(reason, message); },
   });
   const env = await t.connect();
-  window.soma = createSomaApi(t, env);
+  window.soma = createSomaApi(t, { ...env, platform: 'web' });
   webRequests(t);
   fileRequests(t);
+  renderFrames(t);
   // Only now: the renderer reads window.soma when it loads
   await import('../../app/src/renderer/main');
 })();

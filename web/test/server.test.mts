@@ -263,3 +263,22 @@ test('save with "Download": the model comes to the browser, saving again downloa
   assert.equal(dl2.args[1], 'Box.soma');
   a.ws.close();
 });
+
+test('ChatGPT sign-in: the address the page ended at reaches pi (the callback cannot, on a server)', async () => {
+  const a = await tab('page-signin');
+  await a.next((m) => m.t === 'welcome');
+  const none = await a.invoke('ai:signInCode', 'http://127.0.0.1:1455/auth/callback?code=x&state=y') as { ok: boolean; error?: string };
+  assert.equal(none.ok, false, 'no sign-in running');
+  const signing = a.invoke('ai:signIn') as Promise<{ ok: boolean; error?: string; cancelled?: boolean }>;
+  const url = await a.next((m) => m.t === 'event' && m.ch === 'ai:signInUrl', 30_000) as Extract<ServerMessage, { t: 'event' }>;
+  assert.match(String(url.args[0]), /^https:\/\/auth\.openai\.com\//);
+  const bad = await a.invoke('ai:signInCode', 'https://example.com/') as { ok: boolean; error?: string };
+  assert.equal(bad.ok, false, 'only the callback address');
+  // A real code cannot exist in a test: pi takes the address and refuses its state, which proves it got there
+  const sent = await a.invoke('ai:signInCode', 'http://127.0.0.1:1455/auth/callback?code=abc&state=not-the-right-one&client_id=x') as { ok: boolean };
+  assert.equal(sent.ok, true);
+  const r = await signing;
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? '', /state/i);
+  a.ws.close();
+});

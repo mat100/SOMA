@@ -1,0 +1,60 @@
+# SOMA in the browser
+
+The web version of SOMA. The browser tab is the window, a Node server is the main process. Both run the code of the
+desktop app in `app/` unchanged: the renderer (`app/src/renderer`), the main process (`app/src/main`) and the Python
+library `soma`. Only what Electron did is replaced. Projects are the same `.soma` models.
+
+## Decisions
+
+- **One user per server.** Each user gets their own server, typically their own container (as a Coder workspace). The
+  server runs Python code of models, terminals and agents with the rights of its user, like the desktop app does on the
+  user's computer. Isolation between users is the container's job, not the server's.
+- **Ports instead of Electron.** `app/src/main/platform.ts` is the interface to the host. Electron implements it in
+  `app/src/main/electron-platform.ts`, this server in `web/server/platform.ts`. The commands of the user interface are one
+  table (`app/src/main/commands.ts`), registered on Electron's IPC (`main.ts`) or on the WebSocket here. The renderer gets
+  `window.soma` from `createSomaApi` (`app/src/shared/api.ts`) on top of a transport: IPC in `preload.ts`, a WebSocket in
+  `web/client/transport.ts`. A new command in the desktop app therefore works here without changes in `web/`.
+- **In `web/` of the same repository**, so the web version follows the desktop app with every change.
+- **Node without a framework:** `node:http` and `ws`, built with the esbuild of `app/` (`app/esbuild.config.mjs`).
+- **Projects live on the server.** The browser uploads files into it and downloads models and exports.
+- **One tab at a time.** The tab that connects last has the session, the other one shows that SOMA is open elsewhere.
+  The open model, running builds and terminals stay on the server when the tab closes or reloads.
+- **Images and videos (`soma render`) are rendered in the user's tab**, with its GPU, not on the server.
+
+## Commands
+
+```
+cd web
+npm install
+npm start                  # builds and starts the server, prints the address with the token
+npm run build              # only builds (dist/)
+npm run typecheck
+npm run test:unit
+```
+
+`app/` needs `npm install` too, the server uses its packages (`node-pty`, `dugite`, the renderer's libraries).
+
+## Configuration (environment)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SOMA_WEB_HOST` | `127.0.0.1` | Address to listen on |
+| `SOMA_WEB_PORT` | `5173` | Port |
+| `SOMA_WEB_TOKEN` | random, kept in `<app data>/web-token` | Token for the first visit: `http://host:port/?token=…`. The server exchanges it for a cookie |
+| `SOMA_WEB_AUTH` | `token` | `proxy`: a proxy in front authenticates (only with `SOMA_WEB_HOST` on localhost) |
+| `SOMA_WEB_BASE` | `/` | Path prefix a proxy keeps in front of every request (Coder's path-based apps); not needed when the proxy removes it |
+| `SOMA_WEB_ORIGINS` | | Further origins allowed for the WebSocket, comma separated |
+| `SOMA_USER_DATA` | `~/.soma-web` | App data: models, settings, logs |
+| `SOMA_PYTHON` | `python3` in `PATH` | Python with `soma` and CadQuery (as for the desktop app) |
+
+## Structure
+
+- `server/main.ts`: start, HTTP (`http.ts`: token, cookie, origin check, static files), WebSocket, the command table.
+- `server/tabs.ts`: the connected tab, reconnecting the same page, taking over by another tab.
+- `server/platform.ts`: the host for `app/src/main` (dialogs, clipboard, links, recycle bin, render page).
+- `client/main.ts`: `window.soma` on the WebSocket, then the renderer of the desktop app. `client/webui.ts`: what only
+  the web version shows (connection lost, session taken over).
+- `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
+- `shared/protocol.ts`: the messages.
+- `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
+- `test/`: unit tests.

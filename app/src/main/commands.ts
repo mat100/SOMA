@@ -15,7 +15,7 @@ import { readSettings, writeSettings } from './settings';
 import { checkLibraryText, createLibrarySkill, importLibrarySkills, libraryState, ownFile, readLibrarySkill, removeLibrarySkill, saveLibrarySkill } from './skilllibrary';
 import { isSkillId, isSkillMode, librarySkill } from './skills';
 import { piEntry } from './somaai';
-import { aiAccounts, cancelSignIn, defaultEffort, defaultModel, listModels, listSessions, saveApiKey, setDefaultEffort, setDefaultModel, signInChatGPT, signOut } from './somaaiauth';
+import { aiAccounts, cancelSignIn, defaultEffort, defaultModel, listModels, listSessions, saveApiKey, setDefaultEffort, setDefaultModel, signInChatGPT, signOut, submitSignInCode } from './somaaiauth';
 import { voice } from './core';
 import { micAccess } from './voice';
 import { areaDir, clearPreviews, isStorageArea, storageStats } from './storage';
@@ -204,6 +204,7 @@ export function registerCommands(ctl: ProjectController, handle: Handle, on: On)
     if (process.env.SOMA_TEST !== '1') void platform().openExternal(url).catch((e: unknown) => console.warn('[somaai] open sign-in page:', e));
   })));
   handle('ai:cancelSignIn', () => cancelSignIn());
+  handle('ai:signInCode', (url: unknown) => submitSignInCode(url));
   handle('ai:signOut', (provider: unknown) => restartAi(signOut(provider)));
   // Earlier conversations of the open model: the window gets ids, never files. Switching looks the file up again
   handle('ai:sessions', async () => {

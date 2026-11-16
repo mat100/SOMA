@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AI_KEY_PROVIDERS, CHATGPT_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
-import type { AiSignInResult } from '../shared/types';
+import type { AiResult, AiSignInResult } from '../shared/types';
 import { appRoot } from './paths';
 import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
 
@@ -250,6 +250,20 @@ export function setDefaultEffort(level: unknown): { ok: boolean; error?: string 
 }
 
 /** Closing stdin cancels pi's login. The callback server on 127.0.0.1 goes with the process. */
+/**
+ * The address the sign-in page of ChatGPT ended at, pasted by the user. Needed where the browser cannot reach pi's
+ * callback on this computer (the web version: pi runs on a server). pi takes it instead of the callback.
+ */
+export function submitSignInCode(url: unknown): AiResult {
+  if (!signing) return { ok: false, error: 'No sign-in is running.' };
+  const u = typeof url === 'string' ? url.trim() : '';
+  if (!/^http:\/\/(127\.0\.0\.1|localhost):1455\/auth\/callback\?/.test(u) || u.length > 8000) {
+    return { ok: false, error: 'Paste the whole address the page ended at. It starts with http://127.0.0.1:1455/auth/callback?' };
+  }
+  try { signing.child.stdin?.write(`${JSON.stringify({ code: u })}\n`); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  return { ok: true };
+}
+
 export function cancelSignIn(): void {
   if (!signing) return;
   signing.cancelled = true;

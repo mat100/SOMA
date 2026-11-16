@@ -6,8 +6,22 @@ import { navLegend, type NavPreset } from '../shared/settings';
 export interface Shortcut { keys: string[]; what: string }
 export interface ShortcutGroup { title: string; items: Shortcut[] }
 
+/**
+ * In the browser (web version) Ctrl+N opens a new window and Ctrl+1 to 3 switch tabs; the browser does not give them to
+ * the page. There these commands are on Alt instead. Keys of the list and labels in the window follow (webKeys).
+ */
+export const WEB_ALT_KEYS = ['n', '1', '2', '3'];
+
+/** In the browser: Ctrl of the keys above becomes Alt, in labels like "Ctrl N" and "(Ctrl 1)" too. */
+export function webKeys(root: ParentNode): void {
+  const swap = (s: string) => s.replace(/\bCtrl([ +])([N123])\b/g, 'Alt$1$2');
+  for (const e of root.querySelectorAll<HTMLElement>('.kbd, .k')) if (/^Ctrl [N123]$/.test(e.textContent ?? '')) e.textContent = swap(e.textContent!);
+  for (const e of root.querySelectorAll<HTMLElement>('[title*="Ctrl"]')) e.title = swap(e.title);
+}
+
 /** Alle Gruppen. Die Navigation im Viewer hängt von der Mausbelegung in den Einstellungen ab (E81). */
-export function shortcutGroups(nav: NavPreset): ShortcutGroup[] {
+export function shortcutGroups(nav: NavPreset, web = false): ShortcutGroup[] {
+  const mod = (k: string) => (web && WEB_ALT_KEYS.includes(k.toLowerCase()) ? 'Alt' : 'Ctrl');
   return [
     {
       title: 'Select and show parts',
@@ -39,11 +53,11 @@ export function shortcutGroups(nav: NavPreset): ShortcutGroup[] {
         { keys: ['Ctrl', 'S'], what: 'Save the model (in the code: save the file and build)' },
         { keys: ['Ctrl', 'Shift', 'S'], what: 'Save as' },
         { keys: ['Ctrl', 'O'], what: 'Open a model' },
-        { keys: ['Ctrl', 'N'], what: 'New model' },
+        { keys: [mod('N'), 'N'], what: 'New model' },
         { keys: ['Ctrl', 'B'], what: 'Build now' },
-        { keys: ['Ctrl', '1'], what: 'Show or hide the sidebar' },
-        { keys: ['Ctrl', '2'], what: 'Show or hide the code' },
-        { keys: ['Ctrl', '3'], what: 'Expand or collapse the agent' },
+        { keys: [mod('1'), '1'], what: 'Show or hide the sidebar' },
+        { keys: [mod('2'), '2'], what: 'Show or hide the code' },
+        { keys: [mod('3'), '3'], what: 'Expand or collapse the agent' },
         { keys: ['F1'], what: 'Help: how the app works' },
       ],
     },

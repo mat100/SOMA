@@ -1,7 +1,7 @@
 import { accountLabel, CHATGPT_PROVIDER, EFFORT_LABEL, EFFORT_LEVELS, PI_DEFAULT_EFFORT, RECOMMENDED_EFFORT, type AiAccount, type AiModel, type Effort } from '../shared/somaai';
 import type { AiStatus, SomaApi, VoiceStatus } from '../shared/types';
 import { VOICE_LANGUAGES, VOICE_MODEL } from '../shared/voice';
-import { effortText, keyForm, showEffortMenu, showModelMenu } from './aiparts';
+import { effortText, keyForm, pasteSignIn, showEffortMenu, showModelMenu } from './aiparts';
 import { icon } from './icons';
 import type { SettingsPage } from './settings';
 import { field, group, head } from './settingspages';
@@ -176,7 +176,9 @@ export class AiPage implements SettingsPage {
         const again = el('button', { className: 'lnk' }, 'Open the page again', icon('openext', 12, 2));
         again.hidden = !this.signInUrl;
         again.addEventListener('click', () => { if (this.signInUrl) void this.deps.api.openUrl(this.signInUrl); });
-        control = el('div', { className: 'st-ai-wait' }, el('span', { className: 'spin' }, icon('spin', 14, 2.4)), el('span', { textContent: 'Waiting for the browser …' }), again, cancel);
+        const wait = el('div', { className: 'st-ai-wait' }, el('span', { className: 'spin' }, icon('spin', 14, 2.4)), el('span', { textContent: 'Waiting for the browser …' }), again, cancel);
+        const paste = pasteSignIn(this.deps.api);
+        control = paste.length ? el('div', {}, wait, ...paste) : wait;
       } else {
         const b = el('button', { className: 'btn sm acc', textContent: 'Sign in with ChatGPT' });
         b.dataset.act = 'chatgpt';

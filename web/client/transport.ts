@@ -1,4 +1,7 @@
 import type { ApiEnv, Transport } from '../../app/src/shared/api';
+
+/** What the server says about the session (the platform the page knows itself). */
+export type ServerEnv = Omit<ApiEnv, 'platform'>;
 import { decode, encode } from '../shared/codec';
 import { uploadDropped } from './files';
 import { PROTOCOL, type ClientMessage, type Role, type ServerMessage } from '../shared/protocol';
@@ -22,17 +25,20 @@ export class WsTransport implements Transport {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Map<string, ((...args: unknown[]) => void)[]>();
   private requestHandlers = new Map<string, (...args: unknown[]) => unknown>();
-  // getRandomValues, not randomUUID: that one exists only on https and localhost, the page may come over plain http
-  private readonly page = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  private readonly page: string;
   private opened = false;
   private stopped = false;
   private retry = 0;
-  private welcomed: ((env: ApiEnv) => void) | null = null;
+  private welcomed: ((env: ServerEnv) => void) | null = null;
 
-  constructor(private readonly role: Role, private readonly events: TransportEvents) {}
+  /** `page`: the name the server gave this page (a render frame); a main page makes up its own. */
+  constructor(private readonly role: Role, private readonly events: TransportEvents, page?: string) {
+    // getRandomValues, not randomUUID: that one exists only on https and localhost, the page may come over plain http
+    this.page = page || [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
 
   /** Connects and waits for the welcome of the server. */
-  connect(): Promise<ApiEnv> {
+  connect(): Promise<ServerEnv> {
     return new Promise((resolve) => { this.welcomed = resolve; this.open(); });
   }
 
@@ -83,6 +89,8 @@ export class WsTransport implements Transport {
       for (const [, p] of this.pending) p.reject(new Error('The connection to the SOMA server was lost.'));
       this.pending.clear();
       if (this.stopped) return;
+      // A render page does not come back: the server has given up its jobs already, it opens a new one when needed
+      if (this.role === 'render') { this.stopped = true; return; }
       this.events.offline();
       // Again soon, then less often
       const delay = Math.min(5000, 250 * 2 ** this.retry++);

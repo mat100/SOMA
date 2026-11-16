@@ -19,7 +19,10 @@ library `soma`. Only what Electron did is replaced. Projects are the same `.soma
 - **Projects live on the server.** The browser uploads files into it and downloads models and exports.
 - **One tab at a time.** The tab that connects last has the session, the other one shows that SOMA is open elsewhere.
   The open model, running builds and terminals stay on the server when the tab closes or reloads.
-- **Images and videos (`soma render`) are rendered in the user's tab**, with its GPU, not on the server.
+- **Images and videos (`soma render`) are rendered in the user's tab**, with its GPU, not on the server: a hidden frame
+  with the render page of the desktop app. Without an open tab `soma render` says so. A tab in the background may be
+  slowed down by the browser; a long video is best made with the tab in front. Videos are H.264 where the browser can
+  encode it, otherwise VP9 (as on the desktop).
 
 ## Commands
 

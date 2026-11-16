@@ -19,7 +19,8 @@ await Promise.all([
           external: ['node-pty', 'dugite', 'bufferutil', 'utf-8-validate'] }),
   // The page: window.soma on the WebSocket, then the renderer of the desktop app
   build({ ...common, entryPoints: [at('client', 'main.ts')], outfile: path.join(pub, 'main.js'), platform: 'browser', format: 'iife' }),
-  build({ ...common, entryPoints: ['src/renderer/render.ts'], outfile: path.join(pub, 'render.js'), platform: 'browser', format: 'iife' }),
+  // The render page (hidden frame for soma render): window.somaRender on the WebSocket, then the render code of app/
+  build({ ...common, entryPoints: [at('client', 'render.ts')], outfile: path.join(pub, 'render.js'), platform: 'browser', format: 'iife' }),
   buildPdfWorker(pub),
 ]);
 writeComponents(at('dist', 'components.json'));

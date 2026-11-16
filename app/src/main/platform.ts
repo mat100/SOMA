@@ -42,6 +42,8 @@ export interface OpenDialogOptions {
   buttonLabel?: string;
   filters?: FileFilter[];
   properties: ('openFile' | 'openDirectory' | 'multiSelections' | 'createDirectory')[];
+  /** The folder receives exported files: the web version offers to download them instead. */
+  forExport?: boolean;
 }
 export interface SaveDialogOptions { title: string; defaultPath?: string; filters?: FileFilter[] }
 export interface MessageBoxOptions {

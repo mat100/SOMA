@@ -42,7 +42,7 @@ export async function chooseExportTarget(o: { kind: 'file' | 'dir'; title: strin
     const opts = { title: o.title, defaultPath: o.defaultPath, filters: o.ext ? [{ name: o.label ?? o.ext.toUpperCase(), extensions: [o.ext] }, { name: 'All files', extensions: ['*'] }] : undefined };
     return platform().showSaveDialog(opts);
   }
-  const opts = { title: o.title, defaultPath: o.defaultPath, buttonLabel: 'Export here', properties: ['openDirectory' as const, 'createDirectory' as const] };
+  const opts = { title: o.title, defaultPath: o.defaultPath, buttonLabel: 'Export here', properties: ['openDirectory' as const, 'createDirectory' as const], forExport: true };
   return (await platform().showOpenDialog(opts))[0] ?? null;
 }
 

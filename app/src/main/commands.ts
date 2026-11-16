@@ -197,7 +197,8 @@ export function registerCommands(ctl: ProjectController, handle: Handle, on: On)
   handle('ai:saveKey', (provider: unknown, key: unknown) => restartAi(saveApiKey(provider, key)));
   handle('ai:signIn', async () => restartAi(await signInChatGPT((url) => {
     platform().send('ai:signInUrl', url);
-    if (process.env.SOMA_TEST !== '1') void platform().openExternal(url);
+    // The window shows the address as well (ai:signInUrl): a browser that does not open is no failure of the sign-in
+    if (process.env.SOMA_TEST !== '1') void platform().openExternal(url).catch((e: unknown) => console.warn('[somaai] open sign-in page:', e));
   })));
   handle('ai:cancelSignIn', () => cancelSignIn());
   handle('ai:signOut', (provider: unknown) => restartAi(signOut(provider)));

@@ -49,6 +49,20 @@ The models live on the server. What the desktop does with a dialog of the system
 - **Show in folder / open with another program**: the file is downloaded.
 - Dropping files from the computer into the window uploads them (folders: as a ZIP or through Import).
 
+## Container
+
+`web/Dockerfile` builds an image with the server, Python 3.12 with CadQuery and `soma` (pinned as
+`python/requirements-base.txt`) and CalculiX, from the root of the repository:
+
+```
+docker build -f web/Dockerfile -t soma-web .
+docker run -p 5173:5173 -v soma-data:/home/soma soma-web     # the log names the address with the token
+```
+
+Everything of the user is in `/home/soma` (models, settings, sign-ins of agents): keep it on a volume. Agents such as
+Claude Code are not part of the image; install them in the container (`npm install -g …` in a terminal of SOMA) or build
+an image of your own on top. Behind an authenticating proxy use `SOMA_WEB_AUTH=proxy` and `SOMA_WEB_ORIGINS`.
+
 ## Configuration (environment)
 
 | Variable | Default | Meaning |
@@ -76,4 +90,6 @@ The models live on the server. What the desktop does with a dialog of the system
 - `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
 - `shared/protocol.ts`: the messages. `shared/files.ts`: the answers of the file dialogs, checked on the server.
 - `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
-- `test/`: unit tests.
+- `test/`: unit tests (`unit.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), and
+  `harness-web.mjs`: the suites of the desktop app against the web, `SOMA_TEST_TARGET=web node test/run-all.mjs` in `app/`.
+- `Dockerfile`: the image (one container per user).

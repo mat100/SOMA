@@ -191,6 +191,8 @@ add_part("Model", cq.Workplane().box(3, 3, 3))
   await app.answers([path.join(work, 'cqe', 'model.py')]);
   const nr = await ev(() => window.__t.newFromCadQuery());
   await waitFor('neues Modell gebaut', (old) => window.__t.project().id !== old && window.__t.status().state === 'ok', 120000, first.id).catch(() => {});
+  // Built is not yet loaded: the tree fills once the viewer has the model (over the WebSocket in the web version later)
+  await waitFor('Teile im Baum', () => window.__t.treeNames().length > 0, 20000).catch(() => {});
   const p2 = await ev(() => window.__t.project());
   const w2 = buildOf(p2.dir).warnings ?? [];
   check('New from CadQuery script: neues Modell mit dem Namen der Datei, Teile aus show_object, Warnung im Build',

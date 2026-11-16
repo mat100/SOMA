@@ -15,9 +15,9 @@ const { version, dependencies = {} } = JSON.parse(fs.readFileSync(at('package.js
 // Versionsnummer von SOMA (E68) aus package.json, für alle Teile gleich (src/shared/version.ts)
 export const common = { bundle: true, sourcemap: true, logLevel: 'info', target: 'es2022', absWorkingDir: APP_DIR, define: { __SOMA_VERSION__: JSON.stringify(version) } };
 
-/** Worker von pdf.js als klassisches Skript: Module aus file:// lädt Chromium nicht (E54). */
-export function buildPdfWorker(outDir) {
-  return build({ ...common, sourcemap: false, entryPoints: ['node_modules/pdfjs-dist/build/pdf.worker.mjs'], outfile: path.resolve(APP_DIR, outDir, 'pdf.worker.js'), platform: 'browser', format: 'iife' });
+/** Worker von pdf.js als klassisches Skript: Module aus file:// lädt Chromium nicht (E54). `extra`: further esbuild options. */
+export function buildPdfWorker(outDir, extra = {}) {
+  return build({ ...common, sourcemap: false, entryPoints: ['node_modules/pdfjs-dist/build/pdf.worker.mjs'], outfile: path.resolve(APP_DIR, outDir, 'pdf.worker.js'), platform: 'browser', format: 'iife', ...extra });
 }
 
 /**

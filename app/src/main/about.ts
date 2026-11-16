@@ -136,7 +136,7 @@ export function aboutText(a: AboutInfo): string {
   const lines = [
     `SOMA ${a.version}`,
     `soma (Python) ${pkg('soma') ?? 'not found'}, Python ${a.python.version ?? 'not found'}, CadQuery ${pkg('cadquery') ?? '?'}, OCP ${pkg('cadquery-ocp') ?? '?'}`,
-    `Electron ${a.electron}, Chromium ${a.chrome}, Node.js ${a.node}, Git ${a.git ?? 'not found'}`,
+    `${a.electron ? `Electron ${a.electron}, Chromium ${a.chrome}, ` : 'Web version, '}Node.js ${a.node}, Git ${a.git ?? 'not found'}`,
     `OS: ${a.os}`,
     `Agents: ${a.agents.map((x) => `${x.label} (${x.found ? 'found' : 'not installed'})`).join(', ') || 'none detected'}`,
     ...a.paths.map((p) => `${p.label}: ${p.path}`),

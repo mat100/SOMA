@@ -452,6 +452,8 @@ export interface RenderResult { ok: boolean; files: string[]; warnings: string[]
 export interface RenderNotice extends RenderResult { kind: 'still' | 'sheet' | 'video'; byAgent: boolean }
 
 export interface SomaApi {
+  /** Where the app runs: the Electron app, or the browser (web/). In the browser a few shortcuts differ (shortcuts.ts). */
+  platform: 'desktop' | 'web';
   testMode: boolean;
   /** Die App beginnt auf der Startseite (E69). Im Testmodus öffnet der Hauptprozess gleich ein Modell, außer SOMA_TEST_START=home. */
   startsHome: boolean;
@@ -577,6 +579,8 @@ export interface SomaApi {
     /** "Sign in with ChatGPT": opens the sign-in page in the browser, ends when signed in, failed or cancelled. */
     signIn(): Promise<AiSignInResult>;
     cancelSignIn(): Promise<void>;
+    /** The address the ChatGPT sign-in page ended at, when it cannot reach SOMA by itself (the web version). */
+    signInCode(url: string): Promise<AiResult>;
     signOut(provider: string): Promise<{ ok: boolean; error?: string }>;
     /** The sign-in page, as soon as it is known (a link in case the browser did not open). */
     onSignInUrl(cb: (url: string) => void): void;

@@ -1,6 +1,6 @@
 import { accountLabel, CHATGPT_PROVIDER, RECOMMENDED_MODEL, type AiAccount } from '../shared/somaai';
 import type { AiEvent, AiExit, SomaApi } from '../shared/types';
-import { keyForm, searchMenu, showModelMenu } from './aiparts';
+import { keyForm, pasteSignIn, searchMenu, showModelMenu } from './aiparts';
 import { icon } from './icons';
 import { renderMarkdown } from './markdown';
 import { el, fmtWhen, menuItem, menus } from './ui';
@@ -464,6 +464,7 @@ export class SomaChat {
       el('h3', { textContent: 'Finish signing in in your browser' }),
       el('p', { className: 'lead', textContent: 'SOMA opened the sign-in page of ChatGPT. Allow SOMA AI there, then come back here. This window updates by itself.' }),
       el('div', { className: 'ai-wait' }, ico('spin', 16, 2.4), el('span', { textContent: 'Waiting for the browser …' })),
+      ...pasteSignIn(this.deps.api),
       el('div', { className: 'acts' }, cancel, again)));
     this.emitState();
   }

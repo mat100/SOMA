@@ -16,11 +16,12 @@ export interface Transport {
 }
 
 /** `testMode`: SOMA_TEST=1. `startsHome`: the app begins on the start page (outside the tests always). */
-export interface ApiEnv { testMode: boolean; startsHome: boolean }
+export interface ApiEnv { platform: 'desktop' | 'web'; testMode: boolean; startsHome: boolean }
 
 /** Schmale, feste Schnittstelle zwischen Renderer und Hauptprozess. Der Renderer hat keinen Node-Zugriff. */
 export function createSomaApi(t: Transport, env: ApiEnv): SomaApi {
   return {
+    platform: env.platform,
     testMode: env.testMode,
     startsHome: env.startsHome,
     project: {
@@ -107,6 +108,7 @@ export function createSomaApi(t: Transport, env: ApiEnv): SomaApi {
       saveKey: (provider, key) => t.invoke('ai:saveKey', provider, key),
       signIn: () => t.invoke('ai:signIn'),
       cancelSignIn: () => t.invoke('ai:cancelSignIn'),
+      signInCode: (url) => t.invoke('ai:signInCode', url),
       signOut: (provider) => t.invoke('ai:signOut', provider),
       onSignInUrl: (cb) => { t.on('ai:signInUrl', (url) => cb(url)); },
       models: () => t.invoke('ai:models'),

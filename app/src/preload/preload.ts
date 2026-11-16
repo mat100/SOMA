@@ -8,6 +8,7 @@ const api = createSomaApi({
   on: (channel, cb) => { ipcRenderer.on(channel, (_e, ...args) => cb(...args)); },
   filePaths: (files) => files.map((f) => webUtils.getPathForFile(f)),
 }, {
+  platform: 'desktop',
   testMode: process.env.SOMA_TEST === '1',
   startsHome: process.env.SOMA_TEST !== '1' || process.env.SOMA_TEST_START === 'home',
 });

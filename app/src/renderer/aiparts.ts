@@ -45,6 +45,30 @@ export function keyForm(deps: KeyFormDeps): HTMLElement[] {
   return [el('div', { className: 'ai-keyrow' }, select, key), err, el('div', { className: 'acts' }, save, el('span', { className: 'grow' }), help)];
 }
 
+/**
+ * While signing in with ChatGPT in the web version: the page of ChatGPT sends the browser back to pi on the server's own
+ * address (127.0.0.1:1455), which the user's browser cannot reach. The page then fails to load; its address is what pi
+ * needs. Empty on the desktop, where that works by itself.
+ */
+export function pasteSignIn(api: SomaApi): HTMLElement[] {
+  if (api.platform !== 'web') return [];
+  const field = el('input', { className: 'ai-field grow', type: 'text', placeholder: 'http://127.0.0.1:1455/auth/callback?…', autocomplete: 'off', spellcheck: false });
+  field.setAttribute('aria-label', 'Address of the page');
+  const err = el('div', { className: 'ai-err' });
+  const send = el('button', { className: 'btn sm', textContent: 'Sign in' });
+  const doSend = async () => {
+    err.textContent = '';
+    const r = await api.ai.signInCode(field.value).catch((e) => ({ ok: false, error: String(e) }));
+    if (!r.ok) err.textContent = r.error ?? 'That did not work.';
+  };
+  send.addEventListener('click', () => void doSend());
+  field.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void doSend(); } });
+  return [
+    el('p', { className: 'c2', textContent: 'After you allowed SOMA AI, the page ends at an address that does not load (it starts with http://127.0.0.1:1455). Copy that address from the address bar and paste it here:' }),
+    el('div', { className: 'ai-keyrow' }, field, send), err,
+  ];
+}
+
 interface MenuEntry { label: string; sub?: string; find: string; on?: boolean; onClick(): void }
 interface MenuSection { title: string; entries: MenuEntry[]; scroll?: boolean }
 interface SearchMenuOptions { placeholder: string; empty: string; align?: 'left' | 'right' }

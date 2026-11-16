@@ -194,6 +194,8 @@ function registerAll(c: ProjectController): void {
   registerCommands(c, (ch, fn) => handlers.set(ch, logFailures(ch, fn)), (ch, fn) => listeners.set(ch, fn));
   // No software rendering to switch to: the browser decides about WebGL
   handlers.set('gpu:webglFailed', () => false);
+  // Tests: like closing the window of the desktop app, which quits it (the open model is left, E69)
+  if (testMode) handlers.set('test:close', () => { void shutdown(); });
   // The file dialogs of the page (web/client/files.ts) browse the server below filesRoot
   handlers.set('web:listDir', (dir: unknown) => listDir(filesRoot, dir));
 }

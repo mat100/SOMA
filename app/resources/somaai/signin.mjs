@@ -13,15 +13,20 @@ const cancel = new AbortController();
 process.stdin.on('end', () => cancel.abort());
 process.stdin.on('error', () => cancel.abort());
 process.stdin.setEncoding('utf8');
-/** Waiting for a pasted address (pi's manual_code prompt). */
+/** Waiting for a pasted address (pi's manual_code prompt), or one pasted before pi asked. */
 let pasted = null;
+let early = null;
 let buf = '';
 process.stdin.on('data', (d) => {
   buf += d;
   for (let i = buf.indexOf('\n'); i >= 0; i = buf.indexOf('\n')) {
     const line = buf.slice(0, i);
     buf = buf.slice(i + 1);
-    try { const m = JSON.parse(line); if (typeof m.code === 'string' && pasted) pasted(m.code); } catch { /* not for us */ }
+    try {
+      const m = JSON.parse(line);
+      if (typeof m.code !== 'string') continue;
+      if (pasted) pasted(m.code); else early = m.code;
+    } catch { /* not for us */ }
   }
 });
 
@@ -31,7 +36,7 @@ process.stdin.on('data', (d) => {
  */
 const waitForCallback = (signal, manual) => new Promise((resolve, reject) => {
   for (const s of [signal, cancel.signal].filter(Boolean)) s.addEventListener('abort', () => reject(new Error('Login cancelled')), { once: true });
-  if (manual) pasted = (code) => { pasted = null; resolve(code); };
+  if (manual && early) { resolve(early); early = null; } else if (manual) pasted = (code) => { pasted = null; resolve(code); };
 });
 
 try {

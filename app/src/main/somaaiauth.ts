@@ -257,7 +257,11 @@ export function setDefaultEffort(level: unknown): { ok: boolean; error?: string 
 export function submitSignInCode(url: unknown): AiResult {
   if (!signing) return { ok: false, error: 'No sign-in is running.' };
   const u = typeof url === 'string' ? url.trim() : '';
-  if (!/^http:\/\/(127\.0\.0\.1|localhost):1455\/auth\/callback\?/.test(u) || u.length > 8000) {
+  let parsed: URL | null = null;
+  try { parsed = u.length <= 8000 ? new URL(u) : null; } catch { /* not an address */ }
+  // Only the callback with what pi needs (its state it checks itself): a wrong paste would end the sign-in
+  const q = parsed?.searchParams;
+  if (!parsed || parsed.origin !== 'http://127.0.0.1:1455' || parsed.pathname !== '/auth/callback' || !(q?.get('error') || (q?.get('code') && q.get('state')))) {
     return { ok: false, error: 'Paste the whole address the page ended at. It starts with http://127.0.0.1:1455/auth/callback?' };
   }
   try { signing.child.stdin?.write(`${JSON.stringify({ code: u })}\n`); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }

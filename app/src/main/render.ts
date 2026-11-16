@@ -1,8 +1,8 @@
-import { BrowserWindow, ipcMain } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { RenderJob, RenderOutput, RenderResult } from '../shared/types';
 import { resolveInside } from './files';
+import { platform, type RenderWindow } from './platform';
 
 /**
  * Bilder und Videos des Modells (E58): ein unsichtbares Fenster mit demselben Viewer wie auf dem Bildschirm. Es entsteht
@@ -31,6 +31,8 @@ export interface RenderRequest {
 const VIEWS = ['iso', 'front', 'back', 'left', 'right', 'top', 'bottom'];
 const MAX_SIDE = 3840;
 const IDLE_MS = 60_000;
+/** The page must report ready within this time, otherwise the job fails instead of waiting forever. */
+const READY_MS = 60_000;
 
 /** Prüft einen Auftrag von außen (Terminal) und bringt ihn auf die erwartete Form. Fehler als Text. */
 export function checkRequest(root: string, raw: unknown): RenderRequest | string {
@@ -79,23 +81,13 @@ export function checkRequest(root: string, raw: unknown): RenderRequest | string
 }
 
 export class RenderService {
-  private win: BrowserWindow | null = null;
+  private win: RenderWindow | null = null;
+  /** Ready of the window, with a time limit: every waiting job sees the same result. */
   private ready: Promise<void> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private idle: NodeJS.Timeout | undefined;
   private nextId = 1;
   private waiting = new Map<number, { resolve: (o: RenderOutput) => void; progress?: (f: number) => void }>();
-
-  constructor() {
-    ipcMain.on('render:done', (e, id: number, out: RenderOutput) => {
-      if (e.sender !== this.win?.webContents) return;
-      this.waiting.get(id)?.resolve(out);
-      this.waiting.delete(id);
-    });
-    ipcMain.on('render:progress', (e, id: number, f: number) => {
-      if (e.sender === this.win?.webContents && Number.isFinite(f)) this.waiting.get(id)?.progress?.(f);
-    });
-  }
 
   /** Auftrag ausführen, nach den laufenden. Schreibt die Dateien ins Projekt und gibt ihre Pfade zurück. */
   run(dir: string, req: RenderRequest, progress?: (f: number) => void): Promise<RenderResult> {
@@ -122,7 +114,7 @@ export class RenderService {
       const out = await new Promise<RenderOutput>((resolve) => {
         const timer = setTimeout(() => { this.waiting.delete(id); resolve({ ok: false, error: 'Time limit exceeded while rendering.' }); }, timeoutMs);
         this.waiting.set(id, { resolve: (o) => { clearTimeout(timer); resolve(o); }, progress });
-        win.webContents.send('render:job', job);
+        win.send(job);
       });
       if (!out.ok) return { ok: false, files: [], warnings: out.warnings ?? [], error: out.error ?? 'Rendering failed.' };
       const files: string[] = [];
@@ -154,32 +146,39 @@ export class RenderService {
     }
   }
 
-  private window(): Promise<BrowserWindow> {
-    if (this.win && !this.win.isDestroyed() && this.ready) return this.ready.then(() => this.win!);
-    const win = new BrowserWindow({
-      show: false, width: 1280, height: 800, title: 'SOMA Render',
-      webPreferences: {
-        preload: path.join(__dirname, '..', 'preload', 'render-preload.js'),
-        contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false,
+  private window(): Promise<RenderWindow> {
+    if (this.win && this.ready) {
+      const w = this.win;
+      return this.ready.then(() => { if (this.win !== w) throw new Error('The render window was closed.'); return w; });
+    }
+    const win: RenderWindow = platform().openRenderWindow({
+      done: (id, out) => {
+        if (this.win !== win) return;
+        this.waiting.get(id)?.resolve(out);
+        this.waiting.delete(id);
+      },
+      progress: (id, f) => { if (this.win === win && Number.isFinite(f)) this.waiting.get(id)?.progress?.(f); },
+      gone: (reason) => {
+        if (this.win !== win) return;
+        console.error(`[soma] Render window ended: ${reason}`);
+        for (const [, w] of this.waiting) w.resolve({ ok: false, error: `The render window crashed (${reason}).` });
+        this.waiting.clear();
+        this.close();
       },
     });
     this.win = win;
-    win.webContents.on('console-message', (_e, level, message) => { if (level >= 2) console.error(`[render] ${message}`); });
-    win.webContents.on('render-process-gone', (_e, d) => {
-      console.error(`[soma] Render window ended: ${d.reason}`);
-      for (const [, w] of this.waiting) w.resolve({ ok: false, error: `The render window crashed (${d.reason}).` });
-      this.waiting.clear();
-      this.close();
-    });
-    this.ready = new Promise<void>((resolve, reject) => {
-      const onReady = (e: Electron.IpcMainEvent) => { if (e.sender === win.webContents) { ipcMain.removeListener('render:ready', onReady); resolve(); } };
-      ipcMain.on('render:ready', onReady);
-      win.webContents.once('did-fail-load', (_e, code, desc) => { ipcMain.removeListener('render:ready', onReady); reject(new Error(`Render window does not load: ${desc} (${code})`)); });
-    });
+    let timer: NodeJS.Timeout | undefined;
+    const ready = Promise.race([win.ready, new Promise<never>((_r, reject) => {
+      timer = setTimeout(() => reject(new Error('The render window did not start in time.')), READY_MS);
+    })]).finally(() => clearTimeout(timer));
     // Lädt es nicht, beim nächsten Auftrag ein neues versuchen statt ewig am alten zu scheitern
-    this.ready.catch(() => { if (this.win === win) this.close(); });
-    void win.loadFile(path.join(__dirname, '..', 'renderer', 'render.html'));
-    return this.ready.then(() => win);
+    ready.catch(() => { if (this.win === win) this.close(); });
+    this.ready = ready;
+    return ready.then(() => {
+      // Closed while starting (crash, app closes): this window takes no job
+      if (this.win !== win) throw new Error('The render window was closed.');
+      return win;
+    });
   }
 
   close(): void {
@@ -187,6 +186,6 @@ export class RenderService {
     const w = this.win;
     this.win = null;
     this.ready = null;
-    if (w && !w.isDestroyed()) w.destroy();
+    w?.close();
   }
 }

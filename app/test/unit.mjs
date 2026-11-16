@@ -599,6 +599,13 @@ try {
   const hc = SK.checkSkillText(guide);
   check('Anleitung ist ein gültiger Skill ohne Hinweise, Bei Bedarf für neue Modelle', !hc.errors.length && !hc.warnings.length && SK.parseSkill('soma-app', guide).defaultMode === 'demand',
     [...hc.errors, ...hc.warnings].join(' | '));
+
+  // Ports (platform.ts): only the Electron host imports electron, the rest also runs in the web version (web/)
+  const mainDir = path.join(APP, 'src', 'main');
+  const electronUsers = fs.readdirSync(mainDir).filter((f) => f.endsWith('.ts') && /from 'electron'/.test(fs.readFileSync(path.join(mainDir, f), 'utf8')));
+  check('Only main.ts and electron-platform.ts in src/main import electron', JSON.stringify(electronUsers.sort()) === '["electron-platform.ts","main.ts"]', electronUsers.join(','));
+  const sharedApi = fs.readFileSync(path.join(APP, 'src', 'shared', 'api.ts'), 'utf8');
+  check('src/shared/api.ts knows neither Electron nor Node', !/from 'electron'|from 'node:|process\.env|require\(/.test(sharedApi));
 } catch (e) {
   console.log('ABBRUCH:', e.message);
   t.fail();

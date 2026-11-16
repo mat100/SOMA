@@ -1,10 +1,10 @@
 import path from 'node:path';
-import type { WebContents } from 'electron';
 import * as pty from 'node-pty';
 import { logAgentStart } from './agents';
 import { bridgeEnv } from './bridge';
 import { envPaths } from './packages';
 import { gitCmdDir, pythonBinDirs, pythonEnv } from './paths';
+import { platform } from './platform';
 
 /**
  * Umgebung fuer Terminals: vorn im PATH die Projektumgebung (E67, `python` sieht Basis und Zusatzpakete), dahinter die
@@ -38,7 +38,7 @@ export class TerminalManager {
   /** Getippte Zeile je Terminal, nur um einen von Hand gestarteten Agenten zu protokollieren (track). null: unzuverlässig. */
   private typed = new Map<number, string | null>();
 
-  constructor(private readonly wc: WebContents, private readonly dir: string) {}
+  constructor(private readonly dir: string) {}
 
   create(opts: { command?: string } = {}): number {
     const win = process.platform === 'win32';
@@ -55,11 +55,11 @@ export class TerminalManager {
     const id = nextId++;
     this.terms.set(id, p);
     if (opts.command) logAgentStart(opts.command, 'button', terminalEnv(this.dir));
-    p.onData((d) => { if (!this.wc.isDestroyed()) this.wc.send('term:data', id, d); });
+    p.onData((d) => platform().send('term:data', id, d));
     p.onExit(({ exitCode }) => {
       this.terms.delete(id);
       this.typed.delete(id);
-      if (!this.wc.isDestroyed()) this.wc.send('term:exit', id, exitCode);
+      platform().send('term:exit', id, exitCode);
     });
     // Ein Startbefehl (z. B. der Agent) wird sichtbar in die Shell getippt. Endet er, bleibt die Shell offen.
     if (opts.command) setTimeout(() => p.write(opts.command + '\r'), 400);

@@ -1,10 +1,10 @@
-import { app } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AI_KEY_PROVIDERS, CHATGPT_PROVIDER, RECOMMENDED_MODEL, type AiAccount, type AiModel, type AiSession } from '../shared/somaai';
 import type { AiSignInResult } from '../shared/types';
+import { appRoot } from './paths';
 import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
 
 /*
@@ -92,7 +92,7 @@ let signing: { child: ChildProcess; cancelled: boolean } | null = null;
 export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInResult> {
   if (signing) return Promise.resolve({ ok: false, error: 'A sign-in is already running.' });
   const index = piIndex();
-  const helper = path.join(app.getAppPath(), 'resources', 'somaai', 'signin.mjs');
+  const helper = path.join(appRoot(), 'resources', 'somaai', 'signin.mjs');
   if (!index || !fs.existsSync(helper)) return Promise.resolve({ ok: false, error: 'SOMA AI is missing from this installation. Please reinstall SOMA.' });
   let id: string;
   try { fs.mkdirSync(aiDir(), { recursive: true }); id = deviceId(); }
@@ -151,7 +151,7 @@ export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInRes
  */
 function piList(args: string[], what: string): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }> {
   const index = piIndex();
-  const helper = path.join(app.getAppPath(), 'resources', 'somaai', 'lists.mjs');
+  const helper = path.join(appRoot(), 'resources', 'somaai', 'lists.mjs');
   if (!index || !fs.existsSync(helper)) return Promise.resolve({ ok: false, error: 'SOMA AI is missing from this installation. Please reinstall SOMA.' });
   try { fs.mkdirSync(aiDir(), { recursive: true }); } catch { /* the helper reports it */ }
   return new Promise((resolve) => {

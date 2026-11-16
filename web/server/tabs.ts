@@ -6,7 +6,7 @@ import { PROTOCOL, validClientMessage, type ClientMessage, type Role, type Serve
 const MAX_WAITING = 32 * 1024 * 1024;
 /** Sent but not yet taken by a slow tab, at most this many bytes. More: the connection is cut, the page reconnects. */
 const MAX_UNSENT = 64 * 1024 * 1024;
-/** A request to the browser (clipboard, link) that gets no answer fails after this time. */
+/** A request to the browser (clipboard, link) that gets no answer fails after this time. Dialogs wait for the user. */
 const REQUEST_MS = 15_000;
 
 export interface Conn {
@@ -39,7 +39,7 @@ export class Tabs {
   private waitingBytes = 0;
   private overflow = false;
   private nextRequest = 1;
-  private requests = new Map<number, { conn: ConnImpl; resolve: () => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+  private requests = new Map<number, { conn: ConnImpl; resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
   readonly renders = new Set<Conn>();
 
   constructor(private readonly env: () => { testMode: boolean; startsHome: boolean }, private readonly events: TabEvents) {}
@@ -57,13 +57,16 @@ export class Tabs {
     this.waiting.push(frame);
   }
 
-  /** Asks the page with the session to do something only a browser can do. Fails without a page or answer. */
-  request(ch: string, args: unknown[]): Promise<void> {
+  /**
+   * Asks the page with the session to do something only a browser can do, with its answer. Fails without a page, when the
+   * page goes, or (unless `wait`, a dialog the user answers) without an answer in time.
+   */
+  request(ch: string, args: unknown[], wait = false): Promise<unknown> {
     const conn = this.main;
     if (!conn) return Promise.reject(new Error('SOMA is not open in a browser tab.'));
     return new Promise((resolve, reject) => {
       const id = this.nextRequest++;
-      const timer = setTimeout(() => { this.requests.delete(id); reject(new Error('The browser did not answer.')); }, REQUEST_MS);
+      const timer = wait ? undefined : setTimeout(() => { this.requests.delete(id); reject(new Error('The browser did not answer.')); }, REQUEST_MS);
       this.requests.set(id, { conn, resolve, reject, timer });
       conn.send({ t: 'request', id, ch, args });
     });
@@ -108,7 +111,7 @@ export class Tabs {
     if (!r || r.conn !== conn) return;
     this.requests.delete(msg.id);
     clearTimeout(r.timer);
-    if (msg.ok) r.resolve(); else r.reject(new Error(msg.error ?? 'The browser refused.'));
+    if (msg.ok) r.resolve(msg.value); else r.reject(new Error(msg.error ?? 'The browser refused.'));
   }
 
   private open(conn: ConnImpl, resume: boolean): void {

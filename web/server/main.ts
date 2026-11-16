@@ -14,6 +14,7 @@ import { setPlatform } from '../../app/src/main/platform';
 import { ProjectController } from '../../app/src/main/projects';
 import { createProject, getLastProject } from '../../app/src/main/workspace';
 import { SOMA_VERSION } from '../../app/src/shared/version';
+import { Files, listDir } from './files';
 import { authorized, handleLogin, sameOrigin, serveStatic, type AuthMode } from './http';
 import { webPlatform } from './platform';
 import { Tabs, type Conn } from './tabs';
@@ -33,6 +34,8 @@ const host = env.SOMA_WEB_HOST || '127.0.0.1';
 const port = Number(env.SOMA_WEB_PORT) || 5173;
 const userData = env.SOMA_USER_DATA || path.join(os.homedir(), '.soma-web');
 const testMode = env.SOMA_TEST === '1';
+/** The folder on the server the file dialogs show (open, save, open folder). */
+const filesRoot = path.resolve(env.SOMA_WEB_FILES || os.homedir());
 /**
  * Prefix under which a proxy forwards requests without removing it (Coder's path-based apps: `/@user/ws.agent/apps/web/`).
  * The pages use relative addresses only, so they need nothing else to know about it.
@@ -79,6 +82,8 @@ let ctl: ProjectController | null = null;
 const handlers = new Map<string, Handler>();
 const listeners = new Map<string, Handler>();
 
+/** Requests of the page that are still running (files.deliverChanged waits for none). */
+let running = 0;
 /** Has the session been opened with a model yet (test mode opens one at the first page, as the desktop at its window)? */
 let testOpened = false;
 
@@ -96,7 +101,11 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
     if (!fn) { conn.send({ t: 'result', id: msg.id, ok: false, error: `Error invoking remote method '${msg.ch}': unknown request` }); return; }
     void (async () => {
       try {
-        conn.send({ t: 'result', id: msg.id, ok: true, value: await fn(...msg.args) });
+        running++;
+        try { conn.send({ t: 'result', id: msg.id, ok: true, value: await fn(...msg.args) }); } finally { running--; }
+        // What requests wrote into the download area (an export, a saved model) goes to the browser, once none of them
+        // is still writing
+        if (!running) await files.deliverChanged();
       } catch (e) {
         // As Electron logs exceptions of handlers and passes them to the renderer
         console.error(`Error occurred in handler for '${msg.ch}':`, e);
@@ -109,7 +118,8 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
   gone(conn) { if (conn.role === 'main') dropDialogs(); else renderGone(conn); },
 });
 
-setPlatform(webPlatform({ appDir: APP_DIR, userData }, tabs));
+const files = new Files(userData, (url, name) => tabs.request('web:download', [url, name]));
+setPlatform(webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files));
 // As Electron's main process: an error nobody caught is in the log (log.ts writes it), the server keeps running
 process.on('uncaughtException', () => {});
 // The main process reads SOMA_USER_DATA (paths.ts); the same folder for everything, terminals included
@@ -182,6 +192,8 @@ function registerAll(c: ProjectController): void {
   registerCommands(c, (ch, fn) => handlers.set(ch, logFailures(ch, fn)), (ch, fn) => listeners.set(ch, fn));
   // No software rendering to switch to: the browser decides about WebGL
   handlers.set('gpu:webglFailed', () => false);
+  // The file dialogs of the page (web/client/files.ts) browse the server below filesRoot
+  handlers.set('web:listDir', (dir: unknown) => listDir(filesRoot, dir));
 }
 
 // ---- HTTP and WebSocket ----------------------------------------------------------------------------------------------------
@@ -195,13 +207,22 @@ const server = http.createServer((req, res) => {
   const url = requestUrl(req);
   if (!url) { res.writeHead(400).end(); return; }
   if (handleLogin(req, res, url, auth)) return;
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
   if (!authorized(req, auth)) {
     res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' })
       .end('SOMA: open the link with the token that the server printed when it started (…/?token=…).');
     return;
   }
-  serveStatic(res, PUBLIC_DIR, stripBase(url.pathname), req.method === 'HEAD');
+  const route = stripBase(url.pathname);
+  if (req.method === 'POST' && route === '/upload') {
+    // Writes on the server: only from the page itself (the cookie is SameSite=Strict as well)
+    if (!sameOrigin(req, origins, auth.kind === 'proxy')) { res.writeHead(403).end(); return; }
+    void files.receiveUpload(req, res, url);
+    return;
+  }
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
+  const dl = /^\/download\/([A-Za-z0-9_-]{10,64})$/.exec(route);
+  if (dl) { void files.serveDownload(res, dl[1]); return; }
+  serveStatic(res, PUBLIC_DIR, route, req.method === 'HEAD');
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 128 * 1024 * 1024 });

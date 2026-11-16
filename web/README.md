@@ -34,6 +34,18 @@ npm run test:unit
 
 `app/` needs `npm install` too, the server uses its packages (`node-pty`, `dugite`, the renderer's libraries).
 
+## Files
+
+The models live on the server. What the desktop does with a dialog of the system, the page does with its own:
+
+- **Open** (a model, a CadQuery script, files to import, skills): upload from this computer, or choose a file on the
+  server. A model opened from an upload saves back as a download: each Ctrl+S downloads the model again.
+- **Save** (Save as, exports): download to this computer, or a place on the server (with a question before replacing).
+  Exports of all parts download as one ZIP.
+- **Open folder** (a folder as the model, E103): a folder on the server.
+- **Show in folder / open with another program**: the file is downloaded.
+- Dropping files from the computer into the window uploads them (folders: as a ZIP or through Import).
+
 ## Configuration (environment)
 
 | Variable | Default | Meaning |
@@ -44,6 +56,7 @@ npm run test:unit
 | `SOMA_WEB_AUTH` | `token` | `proxy`: a proxy in front authenticates (only with `SOMA_WEB_HOST` on localhost) |
 | `SOMA_WEB_BASE` | `/` | Path prefix a proxy keeps in front of every request (Coder's path-based apps); not needed when the proxy removes it |
 | `SOMA_WEB_ORIGINS` | | Further origins allowed for the WebSocket, comma separated |
+| `SOMA_WEB_FILES` | home folder | Folder on the server the file dialogs show (open, save, open folder); nothing outside it, links included |
 | `SOMA_USER_DATA` | `~/.soma-web` | App data: models, settings, logs |
 | `SOMA_PYTHON` | `python3` in `PATH` | Python with `soma` and CadQuery (as for the desktop app) |
 
@@ -52,9 +65,12 @@ npm run test:unit
 - `server/main.ts`: start, HTTP (`http.ts`: token, cookie, origin check, static files), WebSocket, the command table.
 - `server/tabs.ts`: the connected tab, reconnecting the same page, taking over by another tab.
 - `server/platform.ts`: the host for `app/src/main` (dialogs, clipboard, links, recycle bin, render page).
+- `server/files.ts`: uploads (`<app data>/uploads/`), the download area (`<app data>/downloads/`: what a request
+  writes there goes to the browser, again after each change), download links as copies, the folders for the dialogs.
+- `client/files.ts`: the file dialogs in the page: upload or a file on the server, download or a place on the server.
 - `client/main.ts`: `window.soma` on the WebSocket, then the renderer of the desktop app. `client/webui.ts`: what only
   the web version shows (connection lost, session taken over).
 - `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
-- `shared/protocol.ts`: the messages.
+- `shared/protocol.ts`: the messages. `shared/files.ts`: the answers of the file dialogs, checked on the server.
 - `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
 - `test/`: unit tests.

@@ -15,7 +15,7 @@ export type ClientMessage =
   | { t: 'invoke'; id: number; ch: string; args: unknown[] }
   | { t: 'send'; ch: string; args: unknown[] }
   /** Answer to a `request` of the server. */
-  | { t: 'reply'; id: number; ok: boolean; error?: string };
+  | { t: 'reply'; id: number; ok: boolean; value?: unknown; error?: string };
 
 export type ServerMessage =
   | { t: 'welcome'; env: { testMode: boolean; startsHome: boolean }; resumed: boolean }

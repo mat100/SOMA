@@ -1,5 +1,6 @@
 import type { ApiEnv, Transport } from '../../app/src/shared/api';
 import { decode, encode } from '../shared/codec';
+import { uploadDropped } from './files';
 import { PROTOCOL, type ClientMessage, type Role, type ServerMessage } from '../shared/protocol';
 
 export interface TransportEvents {
@@ -20,7 +21,7 @@ export class WsTransport implements Transport {
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Map<string, ((...args: unknown[]) => void)[]>();
-  private requestHandlers = new Map<string, (...args: unknown[]) => Promise<void> | void>();
+  private requestHandlers = new Map<string, (...args: unknown[]) => unknown>();
   // getRandomValues, not randomUUID: that one exists only on https and localhost, the page may come over plain http
   private readonly page = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
   private opened = false;
@@ -56,13 +57,11 @@ export class WsTransport implements Transport {
     this.listeners.set(ch, l);
   }
 
-  /** Does what the server asks of the browser (`request`); a thrown error goes back as the answer. */
-  onRequest(ch: string, fn: (...args: unknown[]) => Promise<void> | void): void { this.requestHandlers.set(ch, fn); }
+  /** Does what the server asks of the browser (`request`); the result or a thrown error goes back as the answer. */
+  onRequest(ch: string, fn: (...args: unknown[]) => unknown): void { this.requestHandlers.set(ch, fn); }
 
-  filePaths(): string[] {
-    // Uploading dropped files comes with the files step of the web version
-    throw new Error('Dropping files from the computer is not available in the browser version yet.');
-  }
+  /** Dropped files are uploaded first, the main process takes them from the server (files.ts). */
+  filePaths(files: File[]): Promise<string[]> { return uploadDropped(files); }
 
   private open(): void {
     const url = new URL('ws', location.href);
@@ -123,8 +122,7 @@ export class WsTransport implements Transport {
     try {
       const fn = this.requestHandlers.get(ch);
       if (!fn) throw new Error(`The page cannot do ${ch}.`);
-      await fn(...args);
-      reply = { t: 'reply', id, ok: true };
+      reply = { t: 'reply', id, ok: true, value: await fn(...args) };
     } catch (e) { reply = { t: 'reply', id, ok: false, error: e instanceof Error ? e.message : String(e) }; }
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(encode(reply));
   }

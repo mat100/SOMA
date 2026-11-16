@@ -18,6 +18,7 @@ let server: ChildProcess;
 let base: string;
 let cookie: string;
 let userData: string;
+let filesRoot: string;
 
 const freePort = () => new Promise<number>((resolve) => {
   const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => resolve(p)); });
@@ -25,10 +26,15 @@ const freePort = () => new Promise<number>((resolve) => {
 
 before(async () => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-test-'));
+  filesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-files-'));
+  fs.mkdirSync(path.join(filesRoot, 'models'));
+  fs.writeFileSync(path.join(filesRoot, 'models', 'a.step'), 'x');
+  fs.symlinkSync('/etc', path.join(filesRoot, 'models', 'out'));
   const port = await freePort();
   base = `http://127.0.0.1:${port}/`;
   server = spawn(process.execPath, [path.join(WEB, 'bin', 'soma-web.cjs')], {
-    env: { ...process.env, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_TEST: '1', SOMA_TEST_START: 'home' },
+    // Not in test mode: dialogs go to the page as for a user, not to prepared answers (dialogs.ts)
+    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_WEB_FILES: filesRoot },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -44,6 +50,7 @@ before(async () => {
 after(() => {
   server?.kill('SIGTERM');
   fs.rmSync(userData, { recursive: true, force: true });
+  fs.rmSync(filesRoot, { recursive: true, force: true });
 });
 
 /** A tab: the WebSocket after hello, with a queue of the messages from the server. */
@@ -106,7 +113,7 @@ test('WebSocket: refused without cookie or from another origin', async () => {
 test('requests reach the main process, errors come back as with Electron', async () => {
   const a = await tab('page-a');
   const w = await a.next((m) => m.t === 'welcome') as Extract<ServerMessage, { t: 'welcome' }>;
-  assert.deepEqual(w.env, { testMode: true, startsHome: true });
+  assert.deepEqual(w.env, { testMode: false, startsHome: true });
   assert.equal(w.resumed, false);
   const settings = await a.invoke('settings:get') as { settings: unknown };
   assert.ok(settings.settings, 'settings of the app');
@@ -188,4 +195,71 @@ test('terminals stay on the server: a new page lists them with their output', as
   await new Promise((r) => setTimeout(r, 300));
   assert.ok(!(await b.invoke('term:list') as { id: number }[]).some((x) => x.id === id), 'closed terminals are gone');
   b.ws.close();
+});
+
+test('upload: only from the page itself, the file lands in a batch folder of the app data', async () => {
+  const batch = 'ab'.repeat(12);
+  const up = (headers: Record<string, string>) => fetch(`${base}upload?batch=${batch}&name=${encodeURIComponent('../part one.step')}`, { method: 'POST', body: 'STEP DATA', headers });
+  assert.equal((await up({ Cookie: cookie })).status, 403, 'without Origin');
+  assert.equal((await up({ Cookie: cookie, Origin: 'http://evil.example' })).status, 403);
+  assert.equal((await up({ Origin: base.slice(0, -1) })).status, 401, 'without cookie');
+  const r = await up({ Cookie: cookie, Origin: base.slice(0, -1) });
+  assert.equal(r.status, 200);
+  const { path: p } = await r.json() as { path: string };
+  assert.equal(path.dirname(p), path.join(userData, 'uploads', batch), 'no way out of the batch folder');
+  assert.equal(path.basename(p), 'part one.step');
+  assert.equal(fs.readFileSync(p, 'utf8'), 'STEP DATA');
+  const again = await (await up({ Cookie: cookie, Origin: base.slice(0, -1) })).json() as { path: string };
+  assert.equal(path.basename(again.path), 'part one (2).step', 'the same name twice: nothing overwritten');
+  assert.equal((await fetch(`${base}upload?batch=../x&name=a`, { method: 'POST', body: 'x', headers: { Cookie: cookie, Origin: base.slice(0, -1) } })).status, 400);
+});
+
+test('downloads need a token the server handed out', async () => {
+  assert.equal((await fetch(`${base}download/aaaaaaaaaaaaaaaa`, { headers: { Cookie: cookie } })).status, 404);
+  assert.equal((await fetch(`${base}download/aaaaaaaaaaaaaaaa`)).status, 401);
+});
+
+test('the file dialogs see the server only below their folder', async () => {
+  const a = await tab('page-files');
+  await a.next((m) => m.t === 'welcome');
+  const root = await a.invoke('web:listDir') as { dir: string; parent: string | null; entries: { name: string; dir: boolean }[] };
+  assert.equal(root.dir, filesRoot);
+  assert.equal(root.parent, null);
+  assert.deepEqual(root.entries, [{ name: 'models', dir: true }]);
+  const sub = await a.invoke('web:listDir', path.join(filesRoot, 'models')) as { entries: { name: string }[]; parent: string };
+  assert.deepEqual(sub.entries.map((e) => e.name), ['a.step'], 'links are not listed');
+  assert.equal(sub.parent, filesRoot);
+  const outside = await a.invoke('web:listDir', '/etc') as { dir: string };
+  assert.equal(outside.dir, filesRoot, 'outside the folder: back at its top');
+  const viaLink = await a.invoke('web:listDir', path.join(filesRoot, 'models', 'out')) as { dir: string };
+  assert.equal(viaLink.dir, filesRoot, 'a link that points out leads nowhere');
+  a.ws.close();
+});
+
+test('save with "Download": the model comes to the browser, saving again downloads it again', async () => {
+  const a = await tab('page-save');
+  await a.next((m) => m.t === 'welcome');
+  await a.invoke('project:create');
+  const saving = a.invoke('project:save', true);
+  const ask = await a.next((m) => m.t === 'request' && m.ch === 'web:saveDialog') as Extract<ServerMessage, { t: 'request' }>;
+  assert.match((ask.args[0] as { name: string }).name, /\.soma$/);
+  a.ws.send(encode({ t: 'reply', id: ask.id, ok: true, value: { kind: 'download', name: 'Box.soma' } }));
+  const dl = await a.next((m) => m.t === 'request' && m.ch === 'web:download') as Extract<ServerMessage, { t: 'request' }>;
+  a.ws.send(encode({ t: 'reply', id: dl.id, ok: true }));
+  const saved = await saving as { cancelled: boolean; error?: string };
+  assert.equal(saved.cancelled, false);
+  assert.equal(saved.error, undefined);
+  assert.equal(dl.args[1], 'Box.soma');
+  const file = await fetch(new URL(String(dl.args[0]), base), { headers: { Cookie: cookie } });
+  assert.equal(file.status, 200);
+  assert.match(file.headers.get('content-disposition') ?? '', /attachment/);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 2)], [0x50, 0x4b], 'a ZIP (.soma)');
+  // Ctrl+S once more: the same file, downloaded again (no dialog)
+  const again = a.invoke('project:save', false);
+  const dl2 = await a.next((m) => m.t === 'request' && m.ch === 'web:download') as Extract<ServerMessage, { t: 'request' }>;
+  a.ws.send(encode({ t: 'reply', id: dl2.id, ok: true }));
+  assert.equal((await again as { error?: string }).error, undefined);
+  assert.equal(dl2.args[1], 'Box.soma');
+  a.ws.close();
 });

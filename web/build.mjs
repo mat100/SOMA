@@ -3,11 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, buildPdfWorker, common, copyRendererAssets, writeComponents } from '../app/esbuild.config.mjs';
+import { APP_DIR, build, buildPdfWorker, common as appCommon, copyRendererAssets, writeComponents } from '../app/esbuild.config.mjs';
 
 const WEB = path.dirname(fileURLToPath(import.meta.url));
 const at = (...p) => path.join(WEB, ...p);
 const pub = at('dist', 'public');
+// Packages of app/ also for the code in web/ (yazl, the renderer's libraries): one installation for both
+const common = { ...appCommon, nodePaths: [path.join(APP_DIR, 'node_modules')] };
 
 fs.rmSync(at('dist'), { recursive: true, force: true });
 await Promise.all([

@@ -12,6 +12,13 @@ const { check } = t;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-unit-'));
 
 try {
+  // Ports (platform.ts): only the Electron host imports electron, the rest also runs in the web version (web/)
+  const mainDir = path.join(APP, 'src', 'main');
+  const electronUsers = fs.readdirSync(mainDir).filter((f) => f.endsWith('.ts') && /from 'electron'/.test(fs.readFileSync(path.join(mainDir, f), 'utf8')));
+  check('Only main.ts and electron-platform.ts in src/main import electron', JSON.stringify(electronUsers.sort()) === '["electron-platform.ts","main.ts"]', electronUsers.join(','));
+  const sharedApi = fs.readFileSync(path.join(APP, 'src', 'shared', 'api.ts'), 'utf8');
+  check('src/shared/api.ts knows neither Electron nor Node', !/from 'electron'|from 'node:|process\.env|require\(/.test(sharedApi));
+
   const out = path.join(tmp, 'files.mjs');
   await build({ entryPoints: [path.join(APP, 'src', 'main', 'files.ts')], outfile: out, bundle: true, platform: 'node', format: 'esm', logLevel: 'silent' });
   const { importInputs, saveFeedbackImage, writeProjectText, backupText, createEntry, renameEntry, trashEntry, entryPath, listFiles } = await import(pathToFileURL(out).href);

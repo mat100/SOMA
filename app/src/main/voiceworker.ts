@@ -11,7 +11,11 @@ interface Recognizer {
 interface Sherpa { OfflineRecognizer: new (config: unknown) => Recognizer }
 interface ParentPort { on(ev: 'message', cb: (e: { data: unknown }) => void): void; postMessage(m: unknown): void }
 
-const port = (process as unknown as { parentPort: ParentPort }).parentPort;
+// A utility process of Electron has parentPort; a Node child process (platform.ts forkWorker elsewhere) has process.send
+const port: ParentPort = (process as unknown as { parentPort?: ParentPort }).parentPort ?? {
+  on: (_ev, cb) => { process.on('message', (data) => cb({ data })); },
+  postMessage: (m) => { process.send?.(m); },
+};
 const dir = process.argv[2];
 
 let recognizer: Recognizer | null = null;

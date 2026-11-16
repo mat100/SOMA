@@ -1,12 +1,12 @@
-import { net } from 'electron';
 import type { UpdateInfo } from '../shared/types';
 import { SOMA_VERSION, isNewerVersion, parseVersion } from '../shared/version';
+import { platform } from './platform';
 
 /**
  * Neue Version auf GitHub (Startseite): fragt die Liste unter Releases ab und nimmt die höchste Versionsnummer. Nicht
  * `releases/latest`: Das übergeht Vorabversionen, und die CI veröffentlicht alle 0.x als „Pre-release“. Entwürfe zählen
  * nicht (ohne Anmeldung ohnehin unsichtbar). Nur lesen und anzeigen, die
- * App lädt und installiert nichts (E28). Über net.fetch, damit der Proxy des Systems gilt. Einmal je Sitzung: Ohne Anmeldung
+ * App lädt und installiert nichts (E28). Über platform().fetch (Electron: net.fetch), damit der Proxy des Systems gilt. Einmal je Sitzung: Ohne Anmeldung
  * erlaubt GitHub 60 Anfragen pro Stunde. Ein Fehler wird höchstens einmal pro Minute wiederholt.
  * `SOMA_UPDATE_URL` ersetzt die Adresse (Tests). Im Test ohne sie gibt es keine Anfrage ins Netz.
  */
@@ -39,7 +39,7 @@ async function fetchLatest(): Promise<UpdateInfo> {
   if (!url) return { ...base, state: 'skipped' };
   let res: Response;
   try {
-    res = await net.fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': `SOMA/${SOMA_VERSION}` }, signal: AbortSignal.timeout(10_000), cache: 'no-store' });
+    res = await platform().fetch(url, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': `SOMA/${SOMA_VERSION}` }, signal: AbortSignal.timeout(10_000), cache: 'no-store' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ...base, state: 'error', error: /abort|timeout/i.test(msg) ? 'GitHub did not answer in time.' : `GitHub could not be reached (${msg}).` };

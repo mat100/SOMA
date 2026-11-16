@@ -167,3 +167,25 @@ test('a message that is no hello first closes the connection', async () => {
   const code = await new Promise<number>((r) => ws.on('close', (c) => r(c)));
   assert.equal(code, 4001);
 });
+
+test('terminals stay on the server: a new page lists them with their output', async () => {
+  const a = await tab('page-term-1');
+  await a.next((m) => m.t === 'welcome');
+  await a.invoke('project:create');
+  const id = await a.invoke('term:create', { title: 'Shell' }) as number;
+  a.ws.send(encode({ t: 'send', ch: 'term:write', args: [id, 'echo TAIL-$((6*7))\r'] }));
+  await a.next((m) => m.t === 'event' && m.ch === 'term:data' && String(m.args[1]).includes('TAIL-42'));
+  // Reload: a new page, the shell is still there with what it printed
+  const b = await tab('page-term-2');
+  await b.next((m) => m.t === 'welcome');
+  const list = await b.invoke('term:list') as { id: number; title: string; agent: boolean; output: string }[];
+  const t = list.find((x) => x.id === id);
+  assert.ok(t, 'the terminal is listed');
+  assert.equal(t.title, 'Shell');
+  assert.equal(t.agent, false);
+  assert.match(t.output, /TAIL-42/);
+  b.ws.send(encode({ t: 'send', ch: 'term:kill', args: [id] }));
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!(await b.invoke('term:list') as { id: number }[]).some((x) => x.id === id), 'closed terminals are gone');
+  b.ws.close();
+});

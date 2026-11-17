@@ -68,11 +68,12 @@ function watchTree(root: string, cb: (evt: string, rel: string) => void): fs.FSW
         const r = name ? (rel ? path.join(rel, String(name)) : String(name)) : rel;
         cb(evt, r);
         if (evt !== 'rename' || !name) return;
-        // A new folder: watch it too. A folder gone: its watchers end
+        // A new folder: watch it too. Gone or replaced (deleted and made again at once): the old watchers end, a folder
+        // there now gets new ones. lstat: links are not followed, as when the watchers were set up
         let isDir = false;
-        try { isDir = fs.statSync(path.join(root, r)).isDirectory(); } catch { /* gone */ }
+        try { isDir = fs.lstatSync(path.join(root, r)).isDirectory(); } catch { /* gone */ }
+        for (const [k, x] of watchers) if (k === r || k.startsWith(r + path.sep)) { x.close(); watchers.delete(k); }
         if (isDir) add(r, true);
-        else for (const [k, x] of watchers) if (k === r || k.startsWith(r + path.sep)) { x.close(); watchers.delete(k); }
       });
     } catch { return; }
     w.on('error', () => { w.close(); watchers.delete(rel); });

@@ -620,8 +620,16 @@ try {
   await pause(100);
   fs.writeFileSync(path.join(wdir, 'parts', 'lid.py'), 'd');
   await pause(400);
+  // A folder deleted and made again at once (a tool that rewrites it): the new one is watched
+  fs.rmSync(path.join(wdir, 'parts'), { recursive: true });
+  fs.mkdirSync(path.join(wdir, 'parts'));
+  await pause(300);
+  const before = seen.length;
+  fs.writeFileSync(path.join(wdir, 'parts', 'base.py'), 'e');
+  await pause(400);
+  const recreated = seen.slice(before).some((r) => /parts[\\/]base\.py$/.test(r ?? ''));
   stopWatch();
-  check('Watcher: a change after the file was replaced by renaming is seen, also in a new folder', seen.includes('model.py') && seen.some((r) => /parts[\\/]lid\.py$/.test(r ?? '')), JSON.stringify(seen));
+  check('Watcher: a change after the file was replaced by renaming is seen, also in a new folder', seen.includes('model.py') && seen.some((r) => /parts[\\/]lid\.py$/.test(r ?? '')) && recreated, JSON.stringify(seen));
 
   // Ports (platform.ts): only the Electron host imports electron, the rest also runs in the web version (web/)
   const mainDir = path.join(APP, 'src', 'main');

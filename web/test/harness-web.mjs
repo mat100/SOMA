@@ -29,6 +29,8 @@ export async function startWebApp({ userData, watchdogMs = (Number(process.env.S
   server.stdout.on('data', (d) => { log += d; });
   server.stderr.on('data', (d) => { log += d; });
   const kill = () => { try { server.kill('SIGKILL'); } catch { /* gone */ } };
+  // A suite that ends with process.exit() without stop(): the server goes with it
+  process.once('exit', kill);
   for (const t0 = Date.now(); !log.includes('[web] SOMA');) {
     if (server.exitCode !== null || Date.now() - t0 > 60000) { kill(); throw new Error(`Web server did not start. ${log.slice(-600)}`); }
     await sleep(100);

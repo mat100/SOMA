@@ -33,6 +33,7 @@ npm start                  # builds and starts the server, prints the address wi
 npm run build              # only builds (dist/)
 npm run typecheck
 npm run test:unit
+npm test                   # builds, then unit, server and browser tests (Chromium from Playwright's cache)
 ```
 
 `app/` needs `npm install` too, the server uses its packages (`node-pty`, `dugite`, the renderer's libraries).
@@ -92,6 +93,7 @@ asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same contai
 - `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
 - `shared/protocol.ts`: the messages. `shared/files.ts`: the answers of the file dialogs, checked on the server.
 - `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
-- `test/`: unit tests (`unit.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), and
+- `test/`: unit tests (`unit.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), the page in
+  Chromium (`browser.test.mts`: file dialogs, dropped files, lost connection, second tab, Alt shortcuts, closing), and
   `harness-web.mjs`: the suites of the desktop app against the web, `SOMA_TEST_TARGET=web node test/run-all.mjs` in `app/`.
 - `Dockerfile`: the image (one container per user).

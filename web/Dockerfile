@@ -44,8 +44,9 @@ RUN useradd --create-home --uid 1000 --shell /bin/bash soma 2>/dev/null || userm
 USER soma
 WORKDIR /home/soma
 ENV SOMA_PYTHON=/opt/soma/venv/bin/python \
-    PATH=/opt/soma/venv/bin:$PATH \
+    PATH=/home/soma/.npm-global/bin:/opt/soma/venv/bin:$PATH \
     SOMA_USER_DATA=/home/soma/.soma-web \
+    NPM_CONFIG_PREFIX=/home/soma/.npm-global \
     SOMA_WEB_HOST=0.0.0.0 \
     SOMA_WEB_PORT=5173 \
     SHELL=/bin/bash

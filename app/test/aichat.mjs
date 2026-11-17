@@ -120,6 +120,8 @@ try {
 
   // ---- A run ------------------------------------------------------------------------------------------------------
   await ev(() => window.__t.toAgent('[Part: Lid · top face] '));
+  // The chip shows once the chat has it (a moment later under load, or in the web version)
+  await app.waitFor('chip', () => window.__t.chat().chips.length > 0, 10000).catch(() => {});
   st = await chat();
   check('"Send to agent" puts a chip into SOMA AI\'s input', st.chips.length === 1 && st.chips[0] === 'Part: Lid · top face', JSON.stringify(st.chips));
   await ev(() => { const i = document.querySelector('.ai-input'); i.value = 'Make the lid thicker.'; i.dispatchEvent(new Event('input')); });

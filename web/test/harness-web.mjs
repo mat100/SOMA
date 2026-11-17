@@ -49,7 +49,8 @@ export async function startWebApp({ userData, watchdogMs = (Number(process.env.S
   // What app/test/cdp.mjs offers for the Electron window
   const page = {
     errors,
-    evaluate: (fn, arg) => p.evaluate(fn, arg ?? null),
+    // As CDP with returnByValue (app/test/cdp.mjs): the value as JSON, so NaN in an object is null there as well
+    evaluate: async (fn, arg) => { const v = await p.evaluate(fn, arg ?? null); return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); },
     click: (x, y) => p.evaluate(({ x, y }) => {
       const target = document.elementFromPoint(x, y);
       if (!target) return false;

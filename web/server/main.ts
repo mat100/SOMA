@@ -103,7 +103,7 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
     void (async () => {
       try {
         running++;
-        try { conn.send({ t: 'result', id: msg.id, ok: true, value: await fn(...msg.args) }); } finally { running--; }
+        try { conn.send({ t: 'result', id: msg.id, ok: true, value: files.forPage(await fn(...msg.args)) }); } finally { running--; }
         // What requests wrote into the download area (an export, a saved model) goes to the browser, once none of them
         // is still writing
         if (!running) await files.deliverChanged();
@@ -233,6 +233,10 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 * 1024 });
 server.on('upgrade', (req, socket, head) => {
   const url = requestUrl(req);
+  // A page of this server from an origin it does not know (a proxy that changes the host): say what to set
+  if (url && stripBase(url.pathname) === '/ws' && authorized(req, auth) && !sameOrigin(req, origins, auth.kind === 'proxy')) {
+    console.warn(`[web] WebSocket refused: origin ${String(req.headers.origin)}, host ${String(req.headers.host)}, forwarded host ${String(req.headers['x-forwarded-host'] ?? '-')}. Behind a proxy: SOMA_WEB_ORIGINS=${String(req.headers.origin)}`);
+  }
   if (!url || stripBase(url.pathname) !== '/ws' || !authorized(req, auth) || !sameOrigin(req, origins, auth.kind === 'proxy')) {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     return;

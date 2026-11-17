@@ -56,12 +56,12 @@ The models live on the server. What the desktop does with a dialog of the system
 
 ```
 docker build -f web/Dockerfile -t soma-web .
-docker run -p 5173:5173 -v soma-data:/home/soma soma-web     # the log names the address with the token
+docker run -p 5173:5173 -v soma-data:/home/node soma-web     # the log names the address with the token
 ```
 
-Everything of the user is in `/home/soma` (models, settings, sign-ins of agents): keep it on a volume. Agents such as
+Everything of the user is in `/home/node` (models, settings, sign-ins of agents): keep it on a volume. Agents such as
 Claude Code are not part of the image; install them in the container (`npm install -g …` in a terminal of SOMA goes to
-`/home/soma/.npm-global`, on the volume) or build an image of your own on top. The image listens on all addresses and
+`/home/node/.npm-global`, on the volume) or build an image of your own on top. The image listens on all addresses and
 asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same container or network namespace, with
 `SOMA_WEB_HOST=127.0.0.1` and `SOMA_WEB_ORIGINS` set.
 

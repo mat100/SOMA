@@ -26,7 +26,7 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
     documents: () => root,
     appRoot: () => cfg.appDir,
     packagedResources: () => null,
-    send: (channel, ...args) => tabs.emit(channel, args),
+    send: (channel, ...args) => tabs.emit(channel, files.forPage(args)),
     async showOpenDialog(o: OpenDialogOptions) {
       const a = checkOpenAnswer(await tabs.request('web:openDialog', [{ ...o, defaultPath: dialogDir(root, o.defaultPath), root }], true),
         !!o.forExport && o.properties.includes('openDirectory'));

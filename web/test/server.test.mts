@@ -246,9 +246,10 @@ test('save with "Download": the model comes to the browser, saving again downloa
   a.ws.send(encode({ t: 'reply', id: ask.id, ok: true, value: { kind: 'download', name: 'Box.soma' } }));
   const dl = await a.next((m) => m.t === 'request' && m.ch === 'web:download') as Extract<ServerMessage, { t: 'request' }>;
   a.ws.send(encode({ t: 'reply', id: dl.id, ok: true }));
-  const saved = await saving as { cancelled: boolean; error?: string };
+  const saved = await saving as { cancelled: boolean; error?: string; zipPath?: string };
   assert.equal(saved.cancelled, false);
   assert.equal(saved.error, undefined);
+  assert.equal(saved.zipPath, 'Box.soma', 'the page names the downloaded file, not a folder of the server');
   assert.equal(dl.args[1], 'Box.soma');
   const file = await fetch(new URL(String(dl.args[0]), base), { headers: { Cookie: cookie } });
   assert.equal(file.status, 200);

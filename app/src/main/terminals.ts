@@ -42,6 +42,8 @@ class OutputTail {
   private size = 0;
   private cut = false;
   add(d: string): void {
+    // One huge chunk (a long paste, a binary cat) is kept only with its end
+    if (d.length > KEEP_OUTPUT) { d = d.slice(-KEEP_OUTPUT); this.cut = true; }
     this.chunks.push(d);
     this.size += d.length;
     while (this.size > KEEP_OUTPUT && this.chunks.length > 1) { this.size -= this.chunks.shift()!.length; this.cut = true; }

@@ -1,8 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { AiResult, AiStatus } from '../shared/types';
-import { appRoot, userDataDir } from './paths';
+import { appRoot, pythonExe, userDataDir } from './paths';
 import { platform } from './platform';
 import { terminalEnv } from './terminals';
 
@@ -124,17 +125,37 @@ export function readJson(file: string): Record<string, unknown> {
 const FORWARD_ONLY = 'SOMA keeps the history of a model forward only (new commits, nothing undone). Make a new commit instead.';
 
 /**
- * Rules of the permission extension. Inside the model folder everything is allowed, the agent moves, renames and analyzes
- * files freely. Leaving the folder, the internet and installing software ask. Dangerous commands and secrets are denied,
- * the agent learns why. Patterns use forward slashes, the extension folds Windows separators.
+ * Folders outside the model the agent may use without asking: the temporary folder (trying a variant there keeps the
+ * model clean) for reading and writing, the system and the base Python (fonts, libraries, soma's own sources) for reading.
  */
-export function guardPolicy(agentDir: string): Record<string, unknown> {
+function freeFolders(): { readWrite: string[]; read: string[] } {
+  const slash = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+  const real = (p: string) => { try { return fs.realpathSync(p); } catch { return p; } };
+  const tmp = [...new Set([os.tmpdir(), real(os.tmpdir()), ...(process.platform === 'win32' ? [] : ['/tmp', '/var/tmp'])].map(slash))];
+  // The base Python: its environment (bin/python -> two folders up) and the Python it was made from
+  const py = pythonExe();
+  const base = path.isAbsolute(py) ? [path.dirname(path.dirname(py)), path.dirname(path.dirname(real(py)))] : [];
+  const system = process.platform === 'win32' ? ['C:/Windows/Fonts']
+    : process.platform === 'darwin' ? ['/System/Library/Fonts', '/Library/Fonts', '/usr', '/opt/homebrew']
+      : ['/usr', '/etc/fonts', '/opt'];
+  return { readWrite: tmp, read: [...new Set([...system, ...base].map(slash))] };
+}
+
+/**
+ * Rules of the permission extension. Inside the model folder everything is allowed, the agent moves, renames and analyzes
+ * files freely. Leaving the folder asks, except for the temporary folder and reading the system (freeFolders). The
+ * internet and installing software ask. Dangerous commands and secrets are denied, the agent learns why. Patterns use
+ * forward slashes, the extension folds Windows separators. Later patterns win, `deny` on any layer wins over all.
+ */
+export function guardPolicy(agentDir: string, free = freeFolders()): Record<string, unknown> {
   const own = `${agentDir.replace(/\\/g, '/')}/*`;
+  const map = (dirs: string[]) => Object.fromEntries(dirs.map((d) => [`${d}/*`, 'allow']));
   const deny = (reason: string) => ({ action: 'deny', reason });
   return {
     permission: {
       '*': 'allow',
-      external_directory: { '*': 'ask' },
+      external_directory: { '*': 'ask', ...map(free.readWrite) },
+      external_directory_read: { '*': 'ask', ...map(free.readWrite), ...map(free.read) },
       path: {
         '*': 'allow',
         '*.env': 'deny',

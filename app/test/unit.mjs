@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { APP, checker, cleanup } from './harness.mjs';
 
@@ -610,6 +611,19 @@ try {
   const hc = SK.checkSkillText(guide);
   check('Anleitung ist ein gültiger Skill ohne Hinweise, Bei Bedarf für neue Modelle', !hc.errors.length && !hc.warnings.length && SK.parseSkill('soma-app', guide).defaultMode === 'demand',
     [...hc.errors, ...hc.warnings].join(' | '));
+
+  // SOMA AI's rules: the temporary folder free, the system readable, other places outside the model ask, secrets denied
+  const aiOut = path.join(tmp, 'somaai.cjs');
+  // node-pty and dugite as empty modules: the rules need neither, and a native module does not load from the temp folder
+  const stub = { name: 'stub', setup(b) { b.onResolve({ filter: /^(node-pty|dugite)$/ }, (a) => ({ path: a.path, namespace: 'stub' })); b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'module.exports = {};' })); } };
+  await build({ entryPoints: [path.join(APP, 'src', 'main', 'somaai.ts')], outfile: aiOut, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent', plugins: [stub] });
+  const { guardPolicy } = createRequire(import.meta.url)(aiOut);
+  const pol = guardPolicy('/data/somaai', { readWrite: ['/tmp'], read: ['/usr', '/opt/py'] }).permission;
+  check('SOMA AI: temporary folder read and write, system and base Python read only, the rest outside asks',
+    pol.external_directory['*'] === 'ask' && pol.external_directory['/tmp/*'] === 'allow' && !pol.external_directory['/usr/*']
+    && pol.external_directory_read['*'] === 'ask' && pol.external_directory_read['/usr/*'] === 'allow' && pol.external_directory_read['/opt/py/*'] === 'allow'
+    && pol.external_directory_read['/tmp/*'] === 'allow' && Object.keys(pol.external_directory_read)[0] === '*', JSON.stringify({ e: pol.external_directory, r: pol.external_directory_read }));
+  check('SOMA AI: secrets and its own sign-in stay denied', pol.path['~/.ssh/*'] === 'deny' && pol.path['/data/somaai/*']?.action === 'deny');
 } catch (e) {
   console.log('ABBRUCH:', e.message);
   t.fail();

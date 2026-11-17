@@ -1,8 +1,8 @@
 # SOMA in the browser as a container: one container per user (web/README.md). Build from the root of the repository:
 #   docker build -f web/Dockerfile -t soma-web .
-#   docker run -p 5173:5173 -v soma-data:/home/soma soma-web
+#   docker run -p 5173:5173 -v soma-data:/home/node soma-web
 # The server prints the address with its token in the log (docker logs). Models, settings and agents' logins are in
-# /home/soma, keep it on a volume. Agents such as Claude Code are not included: install them in the container's terminal
+# /home/node, keep it on a volume. Agents such as Claude Code are not included: install them in the container's terminal
 # (npm install -g …) or in an image of your own on top of this one.
 
 # ---- Build: the web version and app/'s runtime packages (node-pty is built here, it needs a compiler) -------------------
@@ -40,13 +40,13 @@ COPY --from=python /opt/soma /opt/soma
 COPY --from=build /src/app /opt/soma/app/app
 COPY --from=build /src/web /opt/soma/app/web
 COPY LICENSE THIRD_PARTY_NOTICES.md /opt/soma/app/
-RUN useradd --create-home --uid 1000 --shell /bin/bash soma 2>/dev/null || usermod --login soma --home /home/soma --move-home node
-USER soma
-WORKDIR /home/soma
+# The user of the image: `node` (uid 1000) that the base image has, the slim image has no tools to add another
+USER node
+WORKDIR /home/node
 ENV SOMA_PYTHON=/opt/soma/venv/bin/python \
-    PATH=/home/soma/.npm-global/bin:/opt/soma/venv/bin:$PATH \
-    SOMA_USER_DATA=/home/soma/.soma-web \
-    NPM_CONFIG_PREFIX=/home/soma/.npm-global \
+    PATH=/home/node/.npm-global/bin:/opt/soma/venv/bin:$PATH \
+    SOMA_USER_DATA=/home/node/.soma-web \
+    NPM_CONFIG_PREFIX=/home/node/.npm-global \
     SOMA_WEB_HOST=0.0.0.0 \
     SOMA_WEB_PORT=5173 \
     SHELL=/bin/bash

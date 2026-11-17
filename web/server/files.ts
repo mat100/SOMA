@@ -89,6 +89,23 @@ export class Files {
     old(this.downloads, KEEP_DOWNLOADS_MS);
   }
 
+  /**
+   * For the page: a path in the download area is a place on the server the user never sees, the file went to their
+   * computer. Messages name the file instead ("Saved: Box.soma" rather than a folder of the server).
+   */
+  forPage<T>(value: T): T {
+    const root = this.downloads + path.sep;
+    const map = (v: unknown): unknown => {
+      if (typeof v === 'string') return v.startsWith(root) ? v.slice(root.length).split(path.sep).slice(1).join('/') || v : v;
+      if (Array.isArray(v)) return v.map(map);
+      if (v && typeof v === 'object' && Object.getPrototypeOf(v) === Object.prototype) {
+        return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, map(x)]));
+      }
+      return v;
+    };
+    return map(value) as T;
+  }
+
   /** A place for something the browser will download: `name` in a folder of its own. */
   stage(name: string): string {
     const dir = path.join(this.downloads, randomBytes(8).toString('hex'));

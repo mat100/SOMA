@@ -1,4 +1,6 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
+import path from 'node:path';
 import { affectsAnimation, affectsBuild } from '../shared/editable';
 
 /** Ordner, die nie einen Build oder eine Neuanzeige der Dateiliste ausloesen (Ausgaben wuerden sich sonst selbst anstossen). */
@@ -26,7 +28,7 @@ export function watchProject(dir: string, onSource: (rel: string | null) => void
   let drawTimer: NodeJS.Timeout | null = null;
   let watcher: fs.FSWatcher | null = null;
   try {
-    watcher = fs.watch(dir, { recursive: true }, (_evt, filename) => {
+    watcher = watchTree(dir, (_evt, filename) => {
       const rel = filename ? String(filename) : '';
       if (rel && isBuildResult(rel)) { onBuilt(); return; }
       if (rel && isDrawing(rel)) {
@@ -42,4 +44,49 @@ export function watchProject(dir: string, onSource: (rel: string | null) => void
     watcher.on('error', () => { /* Projektordner weg oder gesperrt: nichts zu tun */ });
   } catch { /* Watcher nicht verfuegbar */ }
   return () => { if (filesTimer) clearTimeout(filesTimer); if (drawTimer) clearTimeout(drawTimer); watcher?.close(); };
+}
+
+/** Folders not worth watching on Linux (many files, never shown or built): Git, packages, the project environment (E67). */
+const UNWATCHED = new Set(['.git', 'node_modules', '__pycache__', '.venv', 'venv']);
+const unwatched = (rel: string) => UNWATCHED.has(path.basename(rel)) || /^(env|\.soma[\\/]env)$/.test(rel);
+
+/**
+ * fs.watch for a whole folder. Windows and macOS watch recursively by themselves. Node does it on Linux file by file,
+ * and a file replaced by renaming (the editor saves that way, files.ts) is not watched any more: a later change by the
+ * agent went unnoticed (no build, editor not updated). On Linux therefore one watcher per folder, which sees every
+ * file in it, also new and replaced ones; new folders get their own.
+ */
+function watchTree(root: string, cb: (evt: string, rel: string) => void): fs.FSWatcher {
+  if (process.platform !== 'linux') return fs.watch(root, { recursive: true }, (evt, f) => cb(evt, f ? String(f) : ''));
+  const watchers = new Map<string, fs.FSWatcher>();
+  const add = (rel: string, announce: boolean) => {
+    if (watchers.has(rel) || (rel && unwatched(rel))) return;
+    const abs = path.join(root, rel);
+    let w: fs.FSWatcher;
+    try {
+      w = fs.watch(abs, (evt, name) => {
+        const r = name ? (rel ? path.join(rel, String(name)) : String(name)) : rel;
+        cb(evt, r);
+        if (evt !== 'rename' || !name) return;
+        // A new folder: watch it too. A folder gone: its watchers end
+        let isDir = false;
+        try { isDir = fs.statSync(path.join(root, r)).isDirectory(); } catch { /* gone */ }
+        if (isDir) add(r, true);
+        else for (const [k, x] of watchers) if (k === r || k.startsWith(r + path.sep)) { x.close(); watchers.delete(k); }
+      });
+    } catch { return; }
+    w.on('error', () => { w.close(); watchers.delete(rel); });
+    watchers.set(rel, w);
+    let entries: fs.Dirent[] = [];
+    try { entries = fs.readdirSync(abs, { withFileTypes: true }); } catch { /* gone again */ }
+    for (const e of entries) {
+      const r = rel ? path.join(rel, e.name) : e.name;
+      // Written into a new folder before its watcher stood: report it, so nothing in it is missed
+      if (announce) cb('rename', r);
+      if (e.isDirectory()) add(r, announce);
+    }
+  };
+  add('', false);
+  // What watchProject needs of an FSWatcher: close() and on('error')
+  return Object.assign(new EventEmitter(), { close: () => { for (const w of watchers.values()) w.close(); watchers.clear(); } }) as unknown as fs.FSWatcher;
 }

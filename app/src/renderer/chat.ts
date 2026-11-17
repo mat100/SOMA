@@ -1,4 +1,4 @@
-import { accountLabel, CHATGPT_PROVIDER, EFFORT_LABEL, isEffort, RECOMMENDED_EFFORT, RECOMMENDED_MODEL, type AiAccount, type Effort } from '../shared/somaai';
+import { accountLabel, ACCOUNT_PROVIDERS, CHATGPT_PROVIDER, CLAUDE_PROVIDER, EFFORT_LABEL, isEffort, RECOMMENDED_EFFORT, RECOMMENDED_MODEL, type AiAccount, type Effort } from '../shared/somaai';
 import type { AiEvent, AiExit, SomaApi } from '../shared/types';
 import { effortText, keyForm, pasteSignIn, searchMenu, showEffortMenu, showModelMenu } from './aiparts';
 import { icon } from './icons';
@@ -268,6 +268,8 @@ export class SomaChat {
   private showing: Promise<void> | null = null;
   private showAgain = false;
   private signInUrl = '';
+  /** The account sign-in that runs (ChatGPT or Claude). */
+  private signingProvider = CHATGPT_PROVIDER;
   /**
    * After a new sign-in: its recommended model, set once pi runs. A continued conversation keeps the model it had,
    * the new default in pi's settings alone would not change it.
@@ -460,7 +462,9 @@ export class SomaChat {
     this.setPhase('setup');
     this.top.replaceChildren();
     const chatgpt = el('button', { className: 'btn primary', textContent: 'Sign in with ChatGPT' });
-    chatgpt.addEventListener('click', () => void this.signIn());
+    chatgpt.addEventListener('click', () => void this.signIn(CHATGPT_PROVIDER));
+    const claude = el('button', { className: 'btn primary', textContent: 'Sign in with Claude' });
+    claude.addEventListener('click', () => void this.signIn(CLAUDE_PROVIDER));
     const key = keyForm({ api: this.deps.api, toast: this.deps.toast, saved: (provider) => this.accountsChanged(provider) });
     const term = el('button', { className: 'btn sm', textContent: 'Open a terminal' });
     term.addEventListener('click', () => this.deps.openTerminal());
@@ -471,11 +475,15 @@ export class SomaChat {
       el('span', { className: 'ai-mark' }, icon('sparkle', 26, 1.8)),
       el('h3', { textContent: back ? 'Another sign-in' : 'Set up SOMA AI' }),
       el('p', { className: 'lead', textContent: 'SOMA AI builds the model for you from what you describe. It thinks with an AI service you choose, so it needs an account there. You only do this once.' }),
-      el('div', { className: 'ai-rec' }, icon('sparkle', 13, 2), el('span', {}, 'For the best results we recommend ', el('b', { textContent: 'Opus 5.5' }), ' (Claude, with an API key) or ', el('b', { textContent: 'GPT-6 Astra' }), ' (with ChatGPT), with ', el('b', { textContent: `${EFFORT_LABEL[RECOMMENDED_EFFORT]} effort` }), ' or more.')),
+      el('div', { className: 'ai-rec' }, icon('sparkle', 13, 2), el('span', {}, 'For the best results we recommend ', el('b', { textContent: 'Opus 5.5' }), ' (with Claude) or ', el('b', { textContent: 'GPT-6 Astra' }), ' (with ChatGPT), with ', el('b', { textContent: `${EFFORT_LABEL[RECOMMENDED_EFFORT]} effort` }), ' or more.')),
       el('div', { className: 'ai-opt rec' },
         el('h4', {}, icon('chat', 16), 'Sign in with ChatGPT', el('span', { className: 'badge', textContent: 'Recommended' })),
         el('p', { textContent: 'Uses your ChatGPT Plus or Pro plan. No extra cost, your plan’s limits apply.' }),
         el('div', { className: 'acts' }, chatgpt, el('span', { className: 'c3 small', textContent: 'Opens your browser' }))),
+      el('div', { className: 'ai-opt rec' },
+        el('h4', {}, icon('chat', 16), 'Sign in with Claude', el('span', { className: 'badge', textContent: 'Recommended' })),
+        el('p', { textContent: 'Uses your Claude Pro or Max plan. No extra cost, your plan’s limits apply.' }),
+        el('div', { className: 'acts' }, claude, el('span', { className: 'c3 small', textContent: 'Opens your browser' }))),
       el('div', { className: 'ai-opt' },
         el('h4', {}, icon('apikey', 16), 'Use an API key'),
         el('p', { textContent: 'Pay per use, billed by the provider. Works with Claude, OpenAI, Google Gemini, OpenRouter and OpenCode (Zen or Go).' }),
@@ -489,13 +497,14 @@ export class SomaChat {
     this.emitState();
   }
 
-  private async signIn(): Promise<void> {
+  private async signIn(provider: string): Promise<void> {
     this.signInUrl = '';
+    this.signingProvider = provider;
     this.setPhase('signing');
     this.renderSigning();
-    const r = await this.deps.api.ai.signIn().catch((e) => ({ ok: false, error: String(e), cancelled: false }));
+    const r = await this.deps.api.ai.signIn(provider).catch((e) => ({ ok: false, error: String(e), cancelled: false }));
     this.setPhase('setup');
-    if (r.ok) { this.deps.toast('Signed in with ChatGPT.'); await this.accountsChanged(CHATGPT_PROVIDER); return; }
+    if (r.ok) { this.deps.toast(`Signed in with ${ACCOUNT_PROVIDERS[provider]}.`); await this.accountsChanged(provider); return; }
     this.renderSetup(this.accounts.length > 0);
     if (!r.cancelled) this.deps.toast(`Signing in did not work: ${r.error ?? 'unknown reason'}`, 'error');
   }
@@ -514,7 +523,7 @@ export class SomaChat {
     this.panel.replaceChildren(el('div', { className: 'ai-setup' },
       el('span', { className: 'ai-mark' }, icon('chat', 26, 1.8)),
       el('h3', { textContent: 'Finish signing in in your browser' }),
-      el('p', { className: 'lead', textContent: 'SOMA opened the sign-in page of ChatGPT. Allow SOMA AI there, then come back here. This window updates by itself.' }),
+      el('p', { className: 'lead', textContent: `SOMA opened the sign-in page of ${ACCOUNT_PROVIDERS[this.signingProvider] ?? 'ChatGPT'}. Allow SOMA AI there, then come back here. This window updates by itself.` }),
       el('div', { className: 'ai-wait' }, ico('spin', 16, 2.4), el('span', { textContent: 'Waiting for the browser …' })),
       ...pasteSignIn(this.deps.api),
       el('div', { className: 'acts' }, cancel, again)));

@@ -105,11 +105,11 @@ the agent opens it itself. A plain chat without access to files and commands can
 SOMA AI is the agent built into SOMA, for everyone who does not use a coding agent yet. You talk to it in a chat, and
 it shows what it does in plain words instead of code.
 
-The first time, its tab asks for a sign-in. **Sign in with ChatGPT** uses your ChatGPT Plus or Pro plan and opens your
-browser. Or paste an **API key** from Anthropic (Claude), OpenAI, Google Gemini, OpenRouter or OpenCode (Zen or Go),
-billed per use by the provider. **How do I get a key?** opens the page of the provider. The sign-in stays on this
-computer. For the best results we recommend Opus 5.5 (Claude, with an API key) or GPT-6 Astra (with ChatGPT), with
-High effort or more. Before
+The first time, its tab asks for a sign-in. **Sign in with ChatGPT** uses your ChatGPT Plus or Pro plan, **Sign in with
+Claude** your Claude Pro or Max plan; both open your browser. Or paste an **API key** from Anthropic (Claude), OpenAI,
+Google Gemini, OpenRouter or OpenCode (Zen or Go), billed per use by the provider. **How do I get a key?** opens the page
+of the provider. The sign-in stays on this computer. For the best results we recommend Opus 5.5 (with Claude) or GPT-6
+Astra (with ChatGPT), with High effort or more. Before
 the first message, a note names the risks, **Got it** starts the chat.
 
 ![SOMA AI](../help/chat.png)

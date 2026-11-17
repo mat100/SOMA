@@ -1,4 +1,4 @@
-import { accountLabel, CHATGPT_PROVIDER, EFFORT_LABEL, EFFORT_LEVELS, PI_DEFAULT_EFFORT, RECOMMENDED_EFFORT, type AiAccount, type AiModel, type Effort } from '../shared/somaai';
+import { accountLabel, ACCOUNT_PROVIDERS, CHATGPT_PROVIDER, CLAUDE_PROVIDER, EFFORT_LABEL, EFFORT_LEVELS, PI_DEFAULT_EFFORT, RECOMMENDED_EFFORT, type AiAccount, type AiModel, type Effort } from '../shared/somaai';
 import type { AiStatus, SomaApi, VoiceStatus } from '../shared/types';
 import { VOICE_LANGUAGES, VOICE_MODEL } from '../shared/voice';
 import { effortText, keyForm, pasteSignIn, showEffortMenu, showModelMenu } from './aiparts';
@@ -51,6 +51,8 @@ export class AiPage implements SettingsPage {
   private effort: Effort | null = null;
   private usage: { stats: Json; provider: string } | null = null;
   private signing = false;
+  /** The account sign-in that runs (ChatGPT or Claude). */
+  private signingProvider = CHATGPT_PROVIDER;
   private signInUrl = '';
   private seq = 0;
   private menu: HTMLElement;
@@ -114,15 +116,16 @@ export class AiPage implements SettingsPage {
     return { stats: obj(stats.data), provider: String(obj(obj(state?.data).model).provider ?? '') };
   }
 
-  private async signIn(): Promise<void> {
+  private async signIn(provider: string): Promise<void> {
     this.signing = true;
+    this.signingProvider = provider;
     this.signInUrl = '';
     this.render();
-    const r = await this.deps.api.ai.signIn().catch((e) => ({ ok: false, error: String(e), cancelled: false }));
+    const r = await this.deps.api.ai.signIn(provider).catch((e) => ({ ok: false, error: String(e), cancelled: false }));
     this.signing = false;
     if (r.ok) {
-      this.deps.toast('Signed in with ChatGPT.');
-      await this.deps.accountsChanged(CHATGPT_PROVIDER);
+      this.deps.toast(`Signed in with ${ACCOUNT_PROVIDERS[provider]}.`);
+      await this.deps.accountsChanged(provider);
     } else if (!r.cancelled) this.deps.toast(`Signing in did not work: ${r.error ?? 'unknown reason'}`, 'error');
     await this.refresh();
   }
@@ -168,9 +171,15 @@ export class AiPage implements SettingsPage {
 
   private signInRows(): HTMLElement[] {
     const rows: HTMLElement[] = [];
-    if (!this.accounts.some((a) => a.provider === CHATGPT_PROVIDER && a.type === 'oauth')) {
+    const plans: [string, string][] = [
+      [CHATGPT_PROVIDER, 'Uses your ChatGPT Plus or Pro plan. Opens your browser to sign in.'],
+      [CLAUDE_PROVIDER, 'Uses your Claude Pro or Max plan. Opens your browser to sign in.'],
+    ];
+    for (const [provider, text] of plans) {
+      if (this.accounts.some((a) => a.provider === provider && a.type === 'oauth')) continue;
+      const label = ACCOUNT_PROVIDERS[provider];
       let control: HTMLElement;
-      if (this.signing) {
+      if (this.signing && this.signingProvider === provider) {
         const cancel = el('button', { className: 'btn sm', textContent: 'Cancel' });
         cancel.addEventListener('click', () => void this.deps.api.ai.cancelSignIn());
         const again = el('button', { className: 'lnk' }, 'Open the page again', icon('openext', 12, 2));
@@ -180,12 +189,12 @@ export class AiPage implements SettingsPage {
         const paste = pasteSignIn(this.deps.api);
         control = paste.length ? el('div', {}, wait, ...paste) : wait;
       } else {
-        const b = el('button', { className: 'btn sm acc', textContent: 'Sign in with ChatGPT' });
-        b.dataset.act = 'chatgpt';
-        b.addEventListener('click', () => void this.signIn());
+        const b = el('button', { className: 'btn sm acc', textContent: `Sign in with ${label}`, disabled: this.signing });
+        b.dataset.act = provider === CHATGPT_PROVIDER ? 'chatgpt' : 'claude';
+        b.addEventListener('click', () => void this.signIn(provider));
         control = b;
       }
-      rows.push(field('ChatGPT', 'Uses your ChatGPT Plus or Pro plan. Opens your browser to sign in.', control));
+      rows.push(field(label, text, control));
     }
     const key = el('div', { className: 'st-ai-key' }, ...keyForm({
       api: this.deps.api, toast: this.deps.toast,

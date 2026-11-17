@@ -283,3 +283,20 @@ test('ChatGPT sign-in: the address the page ended at reaches pi (the callback ca
   assert.match(r.error ?? '', /state/i);
   a.ws.close();
 });
+
+test('Claude sign-in: the pasted address of its callback reaches pi as well', async () => {
+  const a = await tab('page-claude');
+  await a.next((m) => m.t === 'welcome');
+  const signing = a.invoke('ai:signIn', 'anthropic') as Promise<{ ok: boolean; error?: string }>;
+  const url = await a.next((m) => m.t === 'event' && m.ch === 'ai:signInUrl', 30_000) as Extract<ServerMessage, { t: 'event' }>;
+  assert.match(String(url.args[0]), /^https:\/\/claude\.ai\/oauth\/authorize\?/);
+  const wrong = await a.invoke('ai:signInCode', 'http://127.0.0.1:1455/auth/callback?code=a&state=b') as { ok: boolean; error?: string };
+  assert.equal(wrong.ok, false, 'the ChatGPT callback is not Claude\'s');
+  assert.match(wrong.error ?? '', /localhost:53692\/callback/);
+  const sent = await a.invoke('ai:signInCode', 'http://localhost:53692/callback?code=abc&state=not-the-right-one') as { ok: boolean };
+  assert.equal(sent.ok, true);
+  const r = await signing;
+  assert.equal(r.ok, false);
+  assert.match(r.error ?? '', /state/i);
+  a.ws.close();
+});

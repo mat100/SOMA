@@ -106,7 +106,7 @@ export function createSomaApi(t: Transport, env: ApiEnv): SomaApi {
       onExit: (cb) => { t.on('ai:exit', (ev) => cb(ev)); },
       accounts: () => t.invoke('ai:accounts'),
       saveKey: (provider, key) => t.invoke('ai:saveKey', provider, key),
-      signIn: () => t.invoke('ai:signIn'),
+      signIn: (provider) => t.invoke('ai:signIn', provider),
       cancelSignIn: () => t.invoke('ai:cancelSignIn'),
       signInCode: (url) => t.invoke('ai:signInCode', url),
       signOut: (provider) => t.invoke('ai:signOut', provider),

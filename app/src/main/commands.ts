@@ -15,7 +15,7 @@ import { readSettings, writeSettings } from './settings';
 import { checkLibraryText, createLibrarySkill, importLibrarySkills, libraryState, ownFile, readLibrarySkill, removeLibrarySkill, saveLibrarySkill } from './skilllibrary';
 import { isSkillId, isSkillMode, librarySkill } from './skills';
 import { piEntry } from './somaai';
-import { aiAccounts, cancelSignIn, defaultEffort, defaultModel, listModels, listSessions, saveApiKey, setDefaultEffort, setDefaultModel, signInChatGPT, signOut, submitSignInCode } from './somaaiauth';
+import { aiAccounts, cancelSignIn, defaultEffort, defaultModel, listModels, listSessions, saveApiKey, setDefaultEffort, setDefaultModel, signInAccount, signOut, submitSignInCode } from './somaaiauth';
 import { voice } from './core';
 import { micAccess } from './voice';
 import { areaDir, clearPreviews, isStorageArea, storageStats } from './storage';
@@ -23,6 +23,7 @@ import { terminalEnv } from './terminals';
 import { checkUpdate } from './updates';
 import { getSkillBases, getSkillDefaults, isProjectId, setSkillBase, setSkillDefault } from './workspace';
 import { fileOpBlockReason } from '../shared/editable';
+import { CHATGPT_PROVIDER, CLAUDE_PROVIDER } from '../shared/somaai';
 import type { AiResult, AiStatus, FileOpResult, LibraryResult, StorageClear } from '../shared/types';
 
 /*
@@ -198,7 +199,8 @@ export function registerCommands(ctl: ProjectController, handle: Handle, on: On)
   const restartAi = <T extends { ok: boolean }>(r: T): T => { if (r.ok) ctl.session?.ai.restart(); return r; };
   handle('ai:accounts', () => aiAccounts());
   handle('ai:saveKey', (provider: unknown, key: unknown) => restartAi(saveApiKey(provider, key)));
-  handle('ai:signIn', async () => restartAi(await signInChatGPT((url) => {
+  // Only the account logins SOMA offers (shared/somaai.ts), ChatGPT when nothing is named (as before)
+  handle('ai:signIn', async (provider: unknown) => restartAi(await signInAccount(provider === CLAUDE_PROVIDER ? CLAUDE_PROVIDER : CHATGPT_PROVIDER, (url) => {
     platform().send('ai:signInUrl', url);
     // The window shows the address as well (ai:signInUrl): a browser that does not open is no failure of the sign-in
     if (process.env.SOMA_TEST !== '1') void platform().openExternal(url).catch((e: unknown) => console.warn('[somaai] open sign-in page:', e));

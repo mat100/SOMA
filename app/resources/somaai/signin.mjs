@@ -44,7 +44,8 @@ try {
   const runtime = await ModelRuntime.create({ authPath, refreshOnCreate: false });
   await runtime.login(provider, 'oauth', {
     signal: cancel.signal,
-    prompt: (p) => (p.type === 'select' ? Promise.resolve(p.options[0].id) : waitForCallback(p.signal, p.type === 'manual_code')),
+    // A choice of method (Claude: browser or copy code): the browser login, its callback also takes a pasted address
+    prompt: (p) => (p.type === 'select' ? Promise.resolve((p.options.find((o) => o.id === 'browser') ?? p.options[0]).id) : waitForCallback(p.signal, p.type === 'manual_code')),
     notify: (e) => {
       if (e.type === 'auth_url') say({ url: e.url });
       else if (e.type === 'device_code') say({ url: e.verificationUri, code: e.userCode });

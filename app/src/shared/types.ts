@@ -594,7 +594,8 @@ export interface SomaApi {
     accounts(): Promise<AiAccount[]>;
     saveKey(provider: string, key: string): Promise<{ ok: boolean; error?: string }>;
     /** "Sign in with ChatGPT": opens the sign-in page in the browser, ends when signed in, failed or cancelled. */
-    signIn(): Promise<AiSignInResult>;
+    /** Sign in with an account: ChatGPT (`openai`, also when nothing is named) or Claude (`anthropic`). */
+    signIn(provider?: string): Promise<AiSignInResult>;
     cancelSignIn(): Promise<void>;
     /** The address the ChatGPT sign-in page ended at, when it cannot reach SOMA by itself (the web version). */
     signInCode(url: string): Promise<AiResult>;

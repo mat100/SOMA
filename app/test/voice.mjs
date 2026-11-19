@@ -105,7 +105,10 @@ try {
   const toast = await ev(() => window.__t.toast());
   check('A toast says how to use it', /Voice input is ready/.test(toast.text), toast.text);
   // After the setup the recording starts right away (fake microphone): Escape drops it
-  await app.waitFor('recording or idle', () => ['recording', 'idle'].includes(window.__t.chat().voice.phase), 10000);
+  // Idle right after the setup does not count yet: the recording may still be starting (later in the web version), and an
+  // Escape before it would leave it running. Idle only with the toast that no microphone was found
+  await app.waitFor('recording', () => window.__t.chat().voice.phase === 'recording'
+    || (window.__t.chat().voice.phase === 'idle' && /microphone/i.test(window.__t.toast()?.text ?? '')), 10000);
   await ev(() => document.querySelector('.ai-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   await app.waitFor('idle', () => window.__t.chat().voice.phase === 'idle', 5000);
   check('Escape drops the recording, nothing in the input', (await ev(() => window.__t.chat().input)) === '');

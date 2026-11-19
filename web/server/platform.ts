@@ -81,7 +81,9 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
     microphoneAccess: async () => ({ ok: true }),
     // A Node child process; 'advanced' serialization copies messages as Electron's utility process does (Float32Array)
     forkWorker: (script, args): WorkerProcess => {
-      const p = fork(script, args, { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
+      // Its native packages (sherpa-onnx) are app/'s, found as the server finds its own (bin/soma-web.cjs)
+      const env = { ...process.env, NODE_PATH: [path.join(cfg.appDir, 'node_modules'), process.env.NODE_PATH].filter(Boolean).join(path.delimiter) };
+      const p = fork(script, args, { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced', env });
       return {
         stdout: p.stdout, stderr: p.stderr,
         postMessage: (m) => { if (p.connected) p.send(m as never); },

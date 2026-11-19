@@ -1,0 +1,10 @@
+# Build context of web/Dockerfile (the repository root): what the image builds itself or does not need
+**/node_modules
+**/dist
+app/release
+app/python-runtime
+app/test/shots
+.git
+.playwright-mcp
+**/__pycache__
+**/*.egg-info

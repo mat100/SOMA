@@ -1,10 +1,10 @@
-import { app } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { AI_KEY_PROVIDERS, CHATGPT_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
-import type { AiSignInResult } from '../shared/types';
+import type { AiResult, AiSignInResult } from '../shared/types';
+import { appRoot } from './paths';
 import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
 
 /*
@@ -92,7 +92,7 @@ let signing: { child: ChildProcess; cancelled: boolean } | null = null;
 export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInResult> {
   if (signing) return Promise.resolve({ ok: false, error: 'A sign-in is already running.' });
   const index = piIndex();
-  const helper = path.join(app.getAppPath(), 'resources', 'somaai', 'signin.mjs');
+  const helper = path.join(appRoot(), 'resources', 'somaai', 'signin.mjs');
   if (!index || !fs.existsSync(helper)) return Promise.resolve({ ok: false, error: 'SOMA AI is missing from this installation. Please reinstall SOMA.' });
   let id: string;
   try { fs.mkdirSync(aiDir(), { recursive: true }); id = deviceId(); }
@@ -151,7 +151,7 @@ export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInRes
  */
 function piList(args: string[], what: string): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }> {
   const index = piIndex();
-  const helper = path.join(app.getAppPath(), 'resources', 'somaai', 'lists.mjs');
+  const helper = path.join(appRoot(), 'resources', 'somaai', 'lists.mjs');
   if (!index || !fs.existsSync(helper)) return Promise.resolve({ ok: false, error: 'SOMA AI is missing from this installation. Please reinstall SOMA.' });
   try { fs.mkdirSync(aiDir(), { recursive: true }); } catch { /* the helper reports it */ }
   return new Promise((resolve) => {
@@ -250,6 +250,24 @@ export function setDefaultEffort(level: unknown): { ok: boolean; error?: string 
 }
 
 /** Closing stdin cancels pi's login. The callback server on 127.0.0.1 goes with the process. */
+/**
+ * The address the sign-in page of ChatGPT ended at, pasted by the user. Needed where the browser cannot reach pi's
+ * callback on this computer (the web version: pi runs on a server). pi takes it instead of the callback.
+ */
+export function submitSignInCode(url: unknown): AiResult {
+  if (!signing) return { ok: false, error: 'No sign-in is running.' };
+  const u = typeof url === 'string' ? url.trim() : '';
+  let parsed: URL | null = null;
+  try { parsed = u.length <= 8000 ? new URL(u) : null; } catch { /* not an address */ }
+  // Only the callback with what pi needs (its state it checks itself): a wrong paste would end the sign-in
+  const q = parsed?.searchParams;
+  if (!parsed || parsed.origin !== 'http://127.0.0.1:1455' || parsed.pathname !== '/auth/callback' || !(q?.get('error') || (q?.get('code') && q.get('state')))) {
+    return { ok: false, error: 'Paste the whole address the page ended at. It starts with http://127.0.0.1:1455/auth/callback?' };
+  }
+  try { signing.child.stdin?.write(`${JSON.stringify({ code: u })}\n`); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
+  return { ok: true };
+}
+
 export function cancelSignIn(): void {
   if (!signing) return;
   signing.cancelled = true;

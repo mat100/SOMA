@@ -154,7 +154,7 @@ export class ShortcutsPage implements SettingsPage {
 
   show(): void {
     const nav = this.deps.current().settings.viewer.navigation;
-    const groups = shortcutGroups(nav).map((g) => group(g.title, ...g.items.map((it) => el('div', { className: 'st-key' },
+    const groups = shortcutGroups(nav, window.soma.platform === 'web').map((g) => group(g.title, ...g.items.map((it) => el('div', { className: 'st-key' },
       el('span', { className: 'st-kk' }, ...it.keys.flatMap((k, i) => [i ? el('span', { className: 'plus', textContent: '+' }) : null, el('kbd', { textContent: k })])),
       el('span', { className: 'st-kw', textContent: it.what })))));
     this.root.replaceChildren(...head('Shortcuts', `Keys and mouse gestures of SOMA. Not active while you type in the code, the terminal or a field. Navigation as set under Viewer (${NAV_PRESETS.find((p) => p.id === nav)?.label ?? nav}).`), ...groups);
@@ -323,7 +323,8 @@ export class AboutPage implements SettingsPage {
     }
     kids.push(group('Versions', this.table([
       ['SOMA app', a.version], ['soma (Python library)', pkg('soma')], ['Python', a.python.version ?? null], ['CadQuery', pkg('cadquery')], ['OCP (OpenCascade)', pkg('cadquery-ocp')],
-      ['Electron', a.electron], ['Chromium', a.chrome], ['Node.js', a.node], ['Git', a.git], ['System', a.os],
+      // The web version has no Electron: its rows stay out (the browser is the user's own)
+      ...(a.electron ? [['Electron', a.electron], ['Chromium', a.chrome]] as [string, string][] : []), ['Node.js', a.node], ['Git', a.git], ['System', a.os],
     ])));
     if (a.python.error) kids.push(el('div', { className: 'st-problem' }, icon('alert', 14, 2), el('span', { textContent: `Python did not answer: ${a.python.error}` })));
     kids.push(group('Agents', el('div', { className: 'st-agents' }, ...(a.agents.length ? a.agents.map((x) => el('div', { className: `st-agent ${x.found ? 'ok' : 'no'}` },

@@ -1,4 +1,3 @@
-import { shell, type BrowserWindow, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,6 +25,7 @@ import { previewComplete as previewReady, stepPreview, storeBuildAsPreview, type
 import {
   agentsEntries, checkValue, cleanValues, copySkill, isSkillId, isSkillMode, librarySkill, listSkills, modeOf, removeSkill, withMode, writeAgentsList, type SkillValues,
 } from './skills';
+import { platform } from './platform';
 import { SomaAI } from './somaai';
 import { TerminalManager } from './terminals';
 import { watchProject } from './watcher';
@@ -109,9 +109,7 @@ export class ProjectController {
   /** Unsichtbares Fenster für Bilder und Videos (E58), eins für die App. */
   readonly renders = new RenderService();
 
-  constructor(private readonly getWin: () => BrowserWindow | null, private readonly wc: WebContents) {}
-
-  private send(channel: string, ...args: unknown[]) { if (!this.wc.isDestroyed()) this.wc.send(channel, ...args); }
+  private send(channel: string, ...args: unknown[]) { platform().send(channel, ...args); }
   need(): Session { if (!this.session) throw new Error('No project open'); return this.session; }
 
   // ---- Sitzung ----------------------------------------------------------------------------------------------------
@@ -163,8 +161,8 @@ export class ProjectController {
     const folder = isFolderProject(id);
     if (folder && !fs.existsSync(dir)) throw new Error(`The folder no longer exists: ${dir}. Open it again with “Open folder” at its new place.`);
     const builds = new BuildManager(dir);
-    const terminals = new TerminalManager(this.wc, dir);
-    const ai = new SomaAI(this.wc, dir);
+    const terminals = new TerminalManager(dir);
+    const ai = new SomaAI(dir);
     const git = new GitRepo(dir);
     // Ältere Projekte: Zwischenergebnisse auch aus den Commits des Agenten heraushalten. Im Ordner-Modus gehört das Repository
     // dem Nutzer, dort hält .soma/.gitignore die Zwischenergebnisse heraus
@@ -207,7 +205,7 @@ export class ProjectController {
    * was angelegt und was geändert wird (Wunsch des Nutzers), mit Abbrechen. Ein schon eingerichteter Ordner öffnet ohne Frage.
    */
   async openFolder(): Promise<OpenResult> {
-    const picked = await chooseFolder(this.getWin());
+    const picked = await chooseFolder();
     if (!picked) return { cancelled: true };
     const dir = path.resolve(picked);
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { cancelled: false, error: `Not a folder: ${dir}` };
@@ -228,7 +226,7 @@ export class ProjectController {
       const scripts = topLevelScripts(dir);
       if (!scripts.length) { createModel = true; entry = 'model.py'; }
       else {
-        const c = await choose(this.getWin(), {
+        const c = await choose({
           title: 'Open folder',
           message: 'Which script builds the model?',
           detail: `The folder has no model.py, but other Python scripts (${scripts.slice(0, 5).join(', ')}${scripts.length > 5 ? ' …' : ''}). ` +
@@ -238,7 +236,7 @@ export class ProjectController {
         if (c === 1) { createModel = true; entry = 'model.py'; }
         else if (c !== 0) return { cancelled: true };
         else {
-          const file = await chooseEntryScript(this.getWin(), dir);
+          const file = await chooseEntryScript(dir);
           if (!file) return { cancelled: true };
           const rel = path.relative(dir, file);
           if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel) || !within(rel)) return { cancelled: false, error: 'The script must be inside the folder.' };
@@ -255,7 +253,7 @@ export class ProjectController {
       if (plan.create.length) lines.push('Creates:', ...plan.create.map((l) => `  ${l}`));
       if (plan.change.length) lines.push(...(lines.length ? [''] : []), 'Changes:', ...plan.change.map((l) => `  ${l}`), '', 'Changed files are backed up first.');
       lines.push('', 'Your other files stay as they are. SOMA does not create a Git repository or commit here.');
-      const c = await choose(this.getWin(), {
+      const c = await choose({
         title: 'Open folder',
         message: plan.change.length ? `SOMA creates and changes files in ${path.basename(dir)}.` : `SOMA creates files in ${path.basename(dir)}.`,
         detail: `${dir}\n\n${lines.join('\n')}`,
@@ -293,7 +291,7 @@ export class ProjectController {
    * inputs/, die ersetzte Vorlage in workspace-backups/. Scheitert der Import, entsteht kein Modell.
    */
   async createFromCadQuery(): Promise<CadQueryImportResult> {
-    const file = await chooseCadQueryScript(this.getWin());
+    const file = await chooseCadQueryScript();
     if (!file) return { cancelled: true, warnings: [] };
     // Import, erster Build und Startcommit dauern einige Sekunden: Das Fenster zeigt die Schritte in einer Ladeanzeige
     const step = (s: string) => this.send('project:step', { step: s, file: path.basename(file) });
@@ -385,8 +383,8 @@ export class ProjectController {
   async reveal(): Promise<void> {
     const s = this.need();
     const zip = getAppState(s.id).zipPath;
-    if (zip && fs.existsSync(zip)) shell.showItemInFolder(zip);
-    else await shell.openPath(s.dir);
+    if (zip && fs.existsSync(zip)) platform().showItemInFolder(zip);
+    else await platform().openPath(s.dir);
   }
 
   /**
@@ -404,7 +402,7 @@ export class ProjectController {
     const startDir = last && fs.existsSync(last) ? last : documentsDir();
     const modelName = safeFileName(readProjectJson(s.id)?.name ?? 'Model');
     const single = !!part || assembly;
-    const target = await chooseExportTarget(this.getWin(), part
+    const target = await chooseExportTarget(part
       ? { kind: 'file', title: `Export “${part}”`, defaultPath: path.join(startDir, `${safeFileName(part)}.${format}`), ext: format }
       : assembly
         ? { kind: 'file', title: 'Export the model as one STEP file', defaultPath: path.join(startDir, `${modelName}.step`), ext: 'step' }
@@ -434,7 +432,7 @@ export class ProjectController {
       // Beim Einzelexport hat der Speichern-Dialog für die Hauptdatei schon gefragt, alles andere fragt die App
       const exists = plan.filter(([, d], i) => !(single && i === 0) && fs.existsSync(d)).map(([, d]) => path.basename(d));
       if (exists.length) {
-        const c = await choose(this.getWin(), {
+        const c = await choose({
           title: 'Export', message: exists.length === 1 ? 'This file already exists in the folder:' : `These ${exists.length} files already exist in the folder:`,
           detail: `${exists.slice(0, 10).join('\n')}${exists.length > 10 ? `\n… and ${exists.length - 10} more` : ''}`, buttons: ['Replace', 'Cancel'],
         });
@@ -471,7 +469,7 @@ export class ProjectController {
       const folder = res.mode === 'folder';
       const last = getAppState(s.id).exportDir;
       const startDir = last && fs.existsSync(last) ? last : documentsDir();
-      const target = await chooseExportTarget(this.getWin(), folder
+      const target = await chooseExportTarget(folder
         ? { kind: 'dir', title: `Choose a folder for the CadQuery model (a folder “${name}” is created in it)`, defaultPath: startDir }
         : { kind: 'file', title: 'Export as CadQuery script', defaultPath: path.join(startDir, `${name}.py`), ext: 'py', label: 'CadQuery script' });
       if (!target) return { ok: false, files: [], cancelled: true };
@@ -490,7 +488,7 @@ export class ProjectController {
       // Für die Hauptdatei hat der Speichern-Dialog schon gefragt, alles andere fragt die App
       const exists = plan.filter(([, d], i) => !(!folder && i === 0) && fs.existsSync(d)).map(([, d]) => path.relative(path.dirname(dest), d));
       if (exists.length) {
-        const c = await choose(this.getWin(), {
+        const c = await choose({
           title: 'Export as CadQuery', message: exists.length === 1 ? 'This file already exists:' : `These ${exists.length} files already exist:`,
           detail: `${exists.slice(0, 10).join('\n')}${exists.length > 10 ? `\n… and ${exists.length - 10} more` : ''}`, buttons: ['Replace', 'Cancel'],
         });
@@ -520,7 +518,7 @@ export class ProjectController {
     const app = getAppState(s.id);
     const startDir = app.exportDir && fs.existsSync(app.exportDir) ? app.exportDir : documentsDir();
     const pj = readProjectJson(s.id);
-    const target = await chooseExportTarget(this.getWin(), {
+    const target = await chooseExportTarget({
       kind: 'file', title: 'Export the model as a ZIP', defaultPath: path.join(startDir, `${safeFileName(pj?.name ?? 'Model')}.zip`), ext: 'zip', label: 'ZIP',
     });
     if (!target) return { ok: false, files: [], cancelled: true };
@@ -529,7 +527,7 @@ export class ProjectController {
       return { ok: false, files: [], error: 'This is the model’s own file. Choose another name for the ZIP.' };
     }
     if (dest !== target && fs.existsSync(dest)) {
-      const c = await choose(this.getWin(), { title: 'Export', message: `${path.basename(dest)} already exists. Replace it?`, detail: dest, buttons: ['Replace', 'Cancel'] });
+      const c = await choose({ title: 'Export', message: `${path.basename(dest)} already exists. Replace it?`, detail: dest, buttons: ['Replace', 'Cancel'] });
       if (c !== 0) return { ok: false, files: [], cancelled: true };
     }
     const warnings: string[] = [];
@@ -576,12 +574,12 @@ export class ProjectController {
       const name = `${safeFileName(pj?.name ?? 'Model')}${MODEL_EXT}`;
       // Vorschlag: neben der bisherigen Datei, sonst in Dokumente
       const suggest = legacy ? modelPath(legacy) : prev && fs.existsSync(path.dirname(prev)) ? path.join(path.dirname(prev), name) : name;
-      const chosen = await choosePath(this.getWin(), 'save', suggest);
+      const chosen = await choosePath('save', suggest);
       if (!chosen) return { cancelled: true };
       zipPath = modelPath(chosen);
       // Den Namen mit .soma hat der Dialog nicht gesehen: eine vorhandene Datei nicht ohne Rückfrage ersetzen
       if (zipPath !== chosen && fs.existsSync(zipPath)) {
-        const c = await choose(this.getWin(), {
+        const c = await choose({
           title: 'Save model', message: `${path.basename(zipPath)} already exists. Replace it?`, detail: zipPath, buttons: ['Replace', 'Cancel'],
         });
         if (c !== 0) return { cancelled: true };
@@ -626,7 +624,7 @@ export class ProjectController {
   // ---- Öffnen -----------------------------------------------------------------------------------------------------
 
   async openZip(): Promise<OpenResult> {
-    const picked = await choosePath(this.getWin(), 'open', '');
+    const picked = await choosePath('open', '');
     if (!picked) return { cancelled: true };
     return this.openZipFile(picked);
   }
@@ -653,7 +651,7 @@ export class ProjectController {
 
     // Die Datei ist ein Export eines geöffneten Ordners: den Ordner nie ersetzen, nur ihn öffnen
     if (isFolderProject(id)) {
-      const c = await choose(this.getWin(), {
+      const c = await choose({
         title: 'Open model', message: 'This file is a copy of a model you opened as a folder.',
         detail: `The folder: ${dir}\nSOMA does not replace a folder of yours with a file. To work on the file separately, open it on another computer or move the folder first.`,
         buttons: ['Open the folder', 'Cancel'],
@@ -686,7 +684,7 @@ export class ProjectController {
     else if (info?.head && wsHead && (await git.isAncestor(info.head, wsHead))) why = 'The working folder is newer than the file.';
     else if (info?.head && wsHead && (await git.isAncestor(wsHead, info.head))) why = 'The file is newer than the working folder.';
     else why = 'The working folder and the file have different versions.';
-    const choice = await choose(this.getWin(), {
+    const choice = await choose({
       title: 'Working folder and file differ',
       message: `${why} What do you want to open?`,
       detail: 'Keep current work: the model opens as it is on this computer.\n' +
@@ -855,7 +853,7 @@ export class ProjectController {
     if (s.folder) return { cancelled: false, error: 'SOMA does not restore versions in a folder you opened. Use Git or your agent for that.' };
     const commit = (await s.git.log()).find((c) => c.hash === hash);
     if (!commit) return { cancelled: false, error: 'This version no longer exists in the history.' };
-    const c = await choose(this.getWin(), {
+    const c = await choose({
       title: 'Restore version',
       message: `Restore “${commit.subject}” (${commit.short})?`,
       detail: 'The files of this version are copied into the working folder and added to the history as a new version. ' +
@@ -946,7 +944,7 @@ export class ProjectController {
         name = `${safeFileName(one!.name)}.${ext}`;
       }
       if (!fs.existsSync(src)) return { ok: false, files: [], error: `${path.basename(src)} is missing. Rebuild the drawings.` };
-      const target = await chooseExportTarget(this.getWin(), { kind: 'file', title: kind === 'set' ? 'Export all sheets as one PDF' : `Export “${one!.name}”`,
+      const target = await chooseExportTarget({ kind: 'file', title: kind === 'set' ? 'Export all sheets as one PDF' : `Export “${one!.name}”`,
         defaultPath: path.join(startDir, name), ext, label: ext.toUpperCase() });
       if (!target) return { ok: false, files: [], cancelled: true };
       const dest = path.extname(target) ? target : `${target}.${ext}`;
@@ -955,7 +953,7 @@ export class ProjectController {
       return { ok: true, files: [dest], target: dest, warnings };
     }
     // Ordner: je Blatt PDF, DXF oder beides
-    const target = await chooseExportTarget(this.getWin(), { kind: 'dir', title: 'Choose a folder for the drawings', defaultPath: startDir });
+    const target = await chooseExportTarget({ kind: 'dir', title: 'Choose a folder for the drawings', defaultPath: startDir });
     if (!target) return { ok: false, files: [], cancelled: true };
     const plan: [string, string][] = [];
     const missing: string[] = [];
@@ -971,7 +969,7 @@ export class ProjectController {
     if (!plan.length) return { ok: false, files: [], error: 'There is no file to export. Rebuild the drawings.', warnings };
     const exists = plan.filter(([, d]) => fs.existsSync(d)).map(([, d]) => path.basename(d));
     if (exists.length) {
-      const c = await choose(this.getWin(), {
+      const c = await choose({
         title: 'Export', message: exists.length === 1 ? 'This file already exists in the folder:' : `These ${exists.length} files already exist in the folder:`,
         detail: `${exists.slice(0, 10).join('\n')}${exists.length > 10 ? `\n… and ${exists.length - 10} more` : ''}`, buttons: ['Replace', 'Cancel'],
       });
@@ -1185,7 +1183,7 @@ export class ProjectController {
     const st = await this.saveState();
     if (!st.unsaved && !editor.dirty.length) return true;
     const inEditor = editor.dirty.length ? `Not yet saved in the editor: ${editor.dirty.join(', ')}. ` : '';
-    const c = await choose(this.getWin(), {
+    const c = await choose({
       title: 'Quit SOMA',
       message: 'The model has unsaved changes.',
       detail: `${inEditor}Your current work stays on this computer, the start page shows it among the recent models. The model file is only updated when you save.`,
@@ -1213,7 +1211,7 @@ export class ProjectController {
     const dir = projectDir(id);
     // Ein geöffneter Ordner gehört dem Nutzer: nur aus der Liste nehmen, der Ordner bleibt
     if (isFolderProject(id)) {
-      const c = await choose(this.getWin(), {
+      const c = await choose({
         title: 'Remove model', message: `Remove “${readProjectJson(id)?.name ?? path.basename(dir)}” from the list?`,
         detail: `The folder stays as it is: ${dir}\n“Open folder” brings it back.`, buttons: ['Remove', 'Cancel'],
       });
@@ -1229,7 +1227,7 @@ export class ProjectController {
       const zip = app.zipPath && fs.existsSync(app.zipPath) ? app.zipPath : null;
       const inZip = !!zip && !!st && !st.dirty && st.head === (app.savedHead ?? null);
       const where = 'The working folder on this computer goes to the Recycle Bin, where it can be restored.';
-      const c = await choose(this.getWin(), {
+      const c = await choose({
         title: 'Remove model',
         message: inZip ? `Remove “${name}” from this computer?` : zip ? `“${name}” has changes that are not in the saved file.` : `“${name}” was never saved.`,
         detail: inZip ? `${where} The model file stays (${zip}), opening it brings the model back.`

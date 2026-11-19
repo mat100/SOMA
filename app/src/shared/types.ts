@@ -453,6 +453,9 @@ export interface ResultMeta {
 export interface ResultEntry extends ResultMeta { file: string; stale: boolean }
 
 /** Auftrag an das unsichtbare Render-Fenster (E58). Die Dateien kommen als Inhalt mit, das Fenster liest selbst nichts. */
+/** A running terminal (term.list): tab title, started for an agent, the end of its output to show again. */
+export interface TerminalInfo { id: number; title: string; agent: boolean; output: string }
+
 export interface RenderJob {
   id: number; kind: 'still' | 'sheet' | 'video'; width: number; height: number;
   view: string | null; at: number; grid: [number, number]; fps: number;
@@ -467,6 +470,8 @@ export interface RenderResult { ok: boolean; files: string[]; warnings: string[]
 export interface RenderNotice extends RenderResult { kind: 'still' | 'sheet' | 'video'; byAgent: boolean }
 
 export interface SomaApi {
+  /** Where the app runs: the Electron app, or the browser (web/). In the browser a few shortcuts differ (shortcuts.ts). */
+  platform: 'desktop' | 'web';
   testMode: boolean;
   /** Die App beginnt auf der Startseite (E69). Im Testmodus öffnet der Hauptprozess gleich ein Modell, außer SOMA_TEST_START=home. */
   startsHome: boolean;
@@ -570,6 +575,8 @@ export interface SomaApi {
   dxf: { view(rel: string, known?: string | null): Promise<DxfResult> };
   term: {
     create(opts?: { command?: string; title?: string }): Promise<number>;
+    /** Terminals of the open model that are still running, with their latest output (the web version after a reload). */
+    list(): Promise<TerminalInfo[]>;
     write(id: number, data: string): void;
     resize(id: number, cols: number, rows: number): void;
     kill(id: number): void;
@@ -594,6 +601,8 @@ export interface SomaApi {
     /** "Sign in with ChatGPT": opens the sign-in page in the browser, ends when signed in, failed or cancelled. */
     signIn(): Promise<AiSignInResult>;
     cancelSignIn(): Promise<void>;
+    /** The address the ChatGPT sign-in page ended at, when it cannot reach SOMA by itself (the web version). */
+    signInCode(url: string): Promise<AiResult>;
     signOut(provider: string): Promise<{ ok: boolean; error?: string }>;
     /** The sign-in page, as soon as it is known (a link in case the browser did not open). */
     onSignInUrl(cb: (url: string) => void): void;

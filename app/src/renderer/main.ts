@@ -35,6 +35,7 @@ import { $, ask, el, fmtWhen, menuItem, menus, toast } from './ui';
 import { VersionsBar } from './versions';
 import { VideoView } from './videoview';
 import { PickResult, Viewer, ViewName } from './viewer';
+import { WEB_ALT_KEYS, webKeys } from './shortcuts';
 
 hydrateIcons();
 const api = window.soma;
@@ -1267,7 +1268,8 @@ async function onProject(p: ProjectInfo): Promise<void> {
   // SOMA AI is in front unless the user prefers a terminal (tests keep the terminal, their suites type into it)
   const wantChat = !chatTab.hidden && (store.get('soma.agentTab') ?? (api.testMode ? 'terminal' : 'ai')) === 'ai';
   // Ready when the agent area shows what it should (the loading screen of "New model" waits for it)
-  const agentReady = terminals.add({ title: 'Terminal' }).then(() => (wantChat ? showChat(true) : undefined));
+  // Terminals still running for this model (web version after a reload) come back, otherwise a new one
+  const agentReady = terminals.resume().then((n) => (n ? null : terminals.add({ title: 'Terminal' }))).then(() => (wantChat ? showChat(true) : undefined));
   void refreshAgents();
   const st = await api.build.status();
   renderBuild(st);
@@ -1465,8 +1467,10 @@ window.addEventListener('keydown', (e) => {
 // Kurzbefehle gelten nicht im Terminal: dort gehören Strg+S/Strg+O den Programmen (Claude Code nutzt Strg+O selbst)
 window.addEventListener('keydown', (e) => {
   // Die Einstellungen liegen über allem und haben eigene Kurzbefehle (Strg+S speichert den Skill), die Hilfe ebenso
-  if (settings.isOpen || help.isOpen || (e.target as HTMLElement | null)?.closest?.('#terminals') || !e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
+  // In the browser a few of them are on Alt (shortcuts.ts WEB_ALT_KEYS), Ctrl there belongs to the browser
+  const alt = api.platform === 'web' && e.altKey && !e.ctrlKey && !e.metaKey && WEB_ALT_KEYS.includes(k);
+  if (settings.isOpen || help.isOpen || (e.target as HTMLElement | null)?.closest?.('#terminals') || (!alt && (!e.ctrlKey || e.altKey))) return;
   // Ohne offenes Modell (Startseite beim Start, E69) gibt es nur Neu und Öffnen
   if (!project && k !== 'n' && k !== 'o') return;
   // Im Editor speichert Strg+S den Code und baut, sonst das ganze Modell als .soma-Datei
@@ -2088,6 +2092,9 @@ api.fs.onEditorRequest(async (action) => {
   if (action === 'save') return { ok: (await code.saveAll()).ok };
   return { ok: await code.discardAll() };
 });
+// In the browser closing the tab asks no main process (the model stays open on the server): only text not yet saved in
+// the editor would be lost, the browser asks then (its own question, pages cannot word it)
+if (api.platform === 'web') window.addEventListener('beforeunload', (e) => { if (code.unsaved().length) e.preventDefault(); });
 // Rückfragen des Hauptprozesses (etwa „Save the model?“ beim Schließen) im Stil der App statt als weißer Dialog des Systems
 api.dialog.onShow((o) => ask(o));
 api.versions.onChanged(() => void versions.refresh());
@@ -2224,6 +2231,8 @@ if (store.get('soma.agentCollapsed') === '1') setAgentCollapsed(true);
   });
   compact.mark('agent', agentMark(lastChatState as ChatState));
 }
+// In the browser a few shortcuts are on Alt: the labels in the window say so (shortcuts.ts)
+if (api.platform === 'web') webKeys(document);
 // Die App beginnt auf der Startseite (E69), der Hauptprozess öffnet kein Modell. Nur im Testmodus öffnet er gleich eins.
 if (api.startsHome) void showStart(true);
 // Erst jetzt steht, was der Nutzer sehen soll, die Startseite liegt schon über der Oberfläche

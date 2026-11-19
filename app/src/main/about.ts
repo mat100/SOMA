@@ -2,12 +2,11 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from 'electron';
 import { exec } from 'dugite';
 import type { AboutInfo, AgentInfo, ComponentInfo } from '../shared/types';
 import { SOMA_VERSION } from '../shared/version';
 import { logTail } from './log';
-import { logsDir, pythonEnv, pythonExe, userDataDir, userSkillsDir, warmDir } from './paths';
+import { appRoot, logsDir, pythonEnv, pythonExe, userDataDir, userSkillsDir, warmDir } from './paths';
 
 /**
  * Angaben für „About“ in den Einstellungen (E81): Versionen, Komponenten mit Lizenz, gefundene Agenten, Pfade. Alles wird
@@ -125,7 +124,7 @@ export async function aboutInfo(agents: () => Promise<AgentInfo[]>): Promise<Abo
       { label: 'Your skills', path: userSkillsDir() },
       { label: 'Logs', path: logsDir() },
       { label: 'Python', path: python.exe },
-      { label: 'Program', path: app.getAppPath() },
+      { label: 'Program', path: appRoot() },
     ],
     components: npmComponents(),
   };
@@ -137,7 +136,7 @@ export function aboutText(a: AboutInfo): string {
   const lines = [
     `SOMA ${a.version}`,
     `soma (Python) ${pkg('soma') ?? 'not found'}, Python ${a.python.version ?? 'not found'}, CadQuery ${pkg('cadquery') ?? '?'}, OCP ${pkg('cadquery-ocp') ?? '?'}`,
-    `Electron ${a.electron}, Chromium ${a.chrome}, Node.js ${a.node}, Git ${a.git ?? 'not found'}`,
+    `${a.electron ? `Electron ${a.electron}, Chromium ${a.chrome}, ` : 'Web version, '}Node.js ${a.node}, Git ${a.git ?? 'not found'}`,
     `OS: ${a.os}`,
     `Agents: ${a.agents.map((x) => `${x.label} (${x.found ? 'found' : 'not installed'})`).join(', ') || 'none detected'}`,
     ...a.paths.map((p) => `${p.label}: ${p.path}`),

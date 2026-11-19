@@ -1,4 +1,3 @@
-import { app, net, session, systemPreferences, utilityProcess, type BrowserWindow, type UtilityProcess } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,6 +5,7 @@ import path from 'node:path';
 import { isVoiceLanguage, VOICE_MAX_SECONDS, VOICE_MODEL } from '../shared/voice';
 import type { VoiceResult, VoiceStatus, VoiceText } from '../shared/types';
 import { userDataDir } from './paths';
+import { platform, type WorkerProcess } from './platform';
 import { writeAtomic } from './skills';
 
 /*
@@ -78,31 +78,12 @@ function readLanguage(): string {
 
 // ---- Microphone -----------------------------------------------------------------------------------------------------
 
-/**
- * Microphone for the main window only, and only sound. Electron allows every permission when no handler is set: other
- * permissions keep that, what changes is the camera and other windows (the render window, help pages).
- */
-export function allowMicrophone(win: BrowserWindow): void {
-  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    if (permission !== 'media') { callback(true); return; }
-    const types = (details as { mediaTypes?: string[] }).mediaTypes ?? [];
-    callback(!win.isDestroyed() && wc === win.webContents && types.length > 0 && types.every((t) => t === 'audio'));
-  });
-}
-
 /** The system's side of the microphone: macOS asks the user once, Windows has a switch in its privacy settings. */
 export async function micAccess(): Promise<VoiceResult> {
   // Tests record from Chromium's fake microphone. A CI runner has no microphone: macOS would ask and wait forever,
   // Windows reports access as denied
   if (process.env.SOMA_TEST === '1') return { ok: true };
-  if (process.platform === 'darwin') {
-    if (await systemPreferences.askForMediaAccess('microphone')) return { ok: true };
-    return { ok: false, error: 'SOMA may not use the microphone. Allow it in System Settings > Privacy & Security > Microphone, then try again.' };
-  }
-  if (process.platform === 'win32' && systemPreferences.getMediaAccessStatus('microphone') === 'denied') {
-    return { ok: false, error: 'Windows does not let apps use the microphone. Turn it on in Settings > Privacy & security > Microphone ("Let desktop apps access your microphone"), then try again.' };
-  }
-  return { ok: true };
+  return platform().microphoneAccess();
 }
 
 // ---- Download -------------------------------------------------------------------------------------------------------
@@ -114,7 +95,7 @@ export class Voice {
   private abort: AbortController | null = null;
   private lastError = '';
   private lastSent = 0;
-  private worker: UtilityProcess | null = null;
+  private worker: WorkerProcess | null = null;
   private ready: Promise<void> | null = null;
   private pending = new Map<number, (r: VoiceText) => void>();
   private seq = 0;
@@ -142,7 +123,7 @@ export class Voice {
       if (!engineDir()) { resolve(MISSING); return; }
       const known = systemProblem();
       if (known) { resolve(known); return; }
-      const proc = utilityProcess.fork(path.join(__dirname, 'voiceworker.js'), ['--probe'], { serviceName: 'SOMA speech check', stdio: 'pipe' });
+      const proc = platform().forkWorker(path.join(__dirname, 'voiceworker.js'), ['--probe'], 'SOMA speech check');
       let err = '';
       proc.stderr?.on('data', (d) => { err += String(d); });
       const timer = setTimeout(() => { proc.kill(); resolve('The speech engine did not start in time.'); }, 20_000);
@@ -229,8 +210,8 @@ export class Voice {
   cancel(): void { this.abort?.abort(); }
 
   private async fetchTo(file: string, signal: AbortSignal): Promise<void> {
-    // net.fetch: the system's proxy applies, as for the update check (updates.ts)
-    const res = await net.fetch(MODEL_URL, { signal, cache: 'no-store' });
+    // Through the platform: on the desktop net.fetch, so the system's proxy applies (as for updates.ts)
+    const res = await platform().fetch(MODEL_URL, { signal, cache: 'no-store' });
     if (!res.ok || !res.body) throw new Error(`The download server answered ${res.status} ${res.statusText}.`);
     const total = Number(res.headers.get('content-length')) || VOICE_MODEL.downloadBytes;
     const out = fs.createWriteStream(file);
@@ -276,7 +257,7 @@ export class Voice {
     if (!modelInstalled()) return Promise.reject(new Error('The speech model is not installed.'));
     // No library path needed: the native module and its libraries find each other next to it (@loader_path on macOS,
     // $ORIGIN on Linux, the module's folder on Windows), read from the files of sherpa-onnx 2.0.1
-    const proc = utilityProcess.fork(path.join(__dirname, 'voiceworker.js'), [modelDir()], { serviceName: 'SOMA speech', stdio: 'pipe' });
+    const proc = platform().forkWorker(path.join(__dirname, 'voiceworker.js'), [modelDir()], 'SOMA speech');
     this.worker = proc;
     // The engine writes notes (resampling) and errors to stderr: into the log
     proc.stdout?.on('data', (d) => console.log(`[voice] ${String(d).trim()}`));
@@ -379,13 +360,4 @@ function untar(archive: string, dest: string, signal: AbortSignal): Promise<void
     child.on('error', (e) => reject(signal.aborted ? e : new Error(`The model could not be unpacked, tar is missing (${e.message}).`)));
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`The model could not be unpacked (tar ended with code ${code}): ${err.trim().slice(0, 300)}`))));
   });
-}
-
-/** Test switch: Chromium's fake microphone plays a WAV file (Settings and chat can then be tried without speaking). */
-export function fakeMicrophone(): void {
-  const wav = process.env.SOMA_TEST_MIC;
-  if (!wav) return;
-  app.commandLine.appendSwitch('use-fake-device-for-media-stream');
-  app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
-  app.commandLine.appendSwitch('use-file-for-fake-audio-capture', wav);
 }

@@ -1,9 +1,9 @@
-import { app, type WebContents } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AiResult, AiStatus } from '../shared/types';
-import { userDataDir } from './paths';
+import { appRoot, userDataDir } from './paths';
+import { platform } from './platform';
 import { terminalEnv } from './terminals';
 
 /*
@@ -31,17 +31,17 @@ const REQUEST_TIMEOUT_MS = 60_000;
 /** pi's own folder in the app data (PI_CODING_AGENT_DIR): sign-in (auth.json), settings, conversations. Not ~/.pi of the user. */
 export const aiDir = () => path.join(userDataDir(), 'somaai');
 /** Files of SOMA for pi: its addition to the system prompt and its own extension. */
-const aiResources = () => path.join(app.getAppPath(), 'resources', 'somaai');
+const aiResources = () => path.join(appRoot(), 'resources', 'somaai');
 
 /** Entry of pi for RPC mode, null when the installation lacks it. */
 export function piEntry(): string | null {
-  const f = path.join(app.getAppPath(), ...PI_PACKAGE, 'dist', 'bundle', 'rpc-entry.js');
+  const f = path.join(appRoot(), ...PI_PACKAGE, 'dist', 'bundle', 'rpc-entry.js');
   return fs.existsSync(f) ? f : null;
 }
 
 /** pi's SDK (ModelRuntime …) in the same bundle as the RPC entry, for the sign-in (somaaiauth.ts). */
 export function piIndex(): string | null {
-  const f = path.join(app.getAppPath(), ...PI_PACKAGE, 'dist', 'bundle', 'index.js');
+  const f = path.join(appRoot(), ...PI_PACKAGE, 'dist', 'bundle', 'index.js');
   return fs.existsSync(f) ? f : null;
 }
 
@@ -56,12 +56,12 @@ export function piProcessEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proc
 }
 
 export function piVersion(): string | null {
-  try { return (JSON.parse(fs.readFileSync(path.join(app.getAppPath(), ...PI_PACKAGE, 'package.json'), 'utf8')) as { version?: string }).version ?? null; }
+  try { return (JSON.parse(fs.readFileSync(path.join(appRoot(), ...PI_PACKAGE, 'package.json'), 'utf8')) as { version?: string }).version ?? null; }
   catch { return null; }
 }
 
 function guardDir(): string | null {
-  const d = path.join(app.getAppPath(), ...GUARD_PACKAGE);
+  const d = path.join(appRoot(), ...GUARD_PACKAGE);
   return fs.existsSync(path.join(d, 'package.json')) ? d : null;
 }
 
@@ -207,7 +207,7 @@ export class SomaAI {
   /** The model is being left or closed: this SomaAI never starts pi again (a late request would land in its folder). */
   private disposed = false;
 
-  constructor(private readonly wc: WebContents, private readonly dir: string) {}
+  constructor(private readonly dir: string) {}
 
   status(): AiStatus {
     return { available: !!piEntry() && !!guardDir(), running: !!this.child, version: piVersion() ?? undefined, error: this.lastError ?? undefined };
@@ -299,7 +299,7 @@ export class SomaAI {
       p.resolve(rec.success ? { ok: true, data: rec.data } : { ok: false, error: String(rec.error ?? 'SOMA AI refused the request.') });
       return;
     }
-    if (!this.wc.isDestroyed()) this.wc.send('ai:event', { gen, record: rec });
+    platform().send('ai:event', { gen, record: rec });
   }
 
   private closed(gen: number, code: number | null, child: ChildProcess, startError?: string): void {
@@ -315,7 +315,7 @@ export class SomaAI {
     console.log(`[somaai] pi ended (code ${code})`);
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.resolve({ ok: false, error: error ?? 'SOMA AI has stopped.' }); }
     this.pending.clear();
-    if (!this.wc.isDestroyed()) this.wc.send('ai:exit', { gen, code, error });
+    platform().send('ai:exit', { gen, code, error });
   }
 
   private request(cmd: Record<string, unknown>): Promise<AiResult> {
@@ -405,7 +405,7 @@ export class SomaAI {
     this.endWait();
     for (const p of this.pending.values()) { clearTimeout(p.timer); p.resolve({ ok: false, error: 'SOMA AI has stopped.' }); }
     this.pending.clear();
-    if (!this.wc.isDestroyed()) this.wc.send('ai:exit', { gen, code: null });
+    platform().send('ai:exit', { gen, code: null });
   }
 
   /** Like stop(), and waits until pi has really ended (at most `ms`), so the model folder is free. */

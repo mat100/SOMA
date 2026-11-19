@@ -84,6 +84,8 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
     openRenderWindow: (events) => renders.open(events),
     // The browser asks for the microphone itself (getUserMedia in the page): nothing for the server to allow
     microphoneAccess: async () => ({ ok: true }),
+    // The user's browser is not on the server: sign-in pages cannot come back to pi's callback here (somaaiauth.ts)
+    remoteBrowser: true,
     // A Node child process; 'advanced' serialization copies messages as Electron's utility process does (Float32Array)
     forkWorker: (script, args): WorkerProcess => {
       // Its native packages (sherpa-onnx) are app/'s, found as the server finds its own (bin/soma-web.cjs)

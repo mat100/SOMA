@@ -523,9 +523,11 @@ export class SomaChat {
     this.panel.replaceChildren(el('div', { className: 'ai-setup' },
       el('span', { className: 'ai-mark' }, icon('chat', 26, 1.8)),
       el('h3', { textContent: 'Finish signing in in your browser' }),
-      el('p', { className: 'lead', textContent: `SOMA opened the sign-in page of ${ACCOUNT_PROVIDERS[this.signingProvider] ?? 'ChatGPT'}. Allow SOMA AI there, then come back here. This window updates by itself.` }),
+      el('p', { className: 'lead', textContent: this.deps.api.platform === 'web' && this.signingProvider === CLAUDE_PROVIDER
+        ? 'SOMA opened the sign-in page of Claude. Click "Authorize" there, then paste the code it shows below.'
+        : `SOMA opened the sign-in page of ${ACCOUNT_PROVIDERS[this.signingProvider] ?? 'ChatGPT'}. Allow SOMA AI there, then come back here. This window updates by itself.` }),
       el('div', { className: 'ai-wait' }, ico('spin', 16, 2.4), el('span', { textContent: 'Waiting for the browser …' })),
-      ...pasteSignIn(this.deps.api),
+      ...pasteSignIn(this.deps.api, this.signingProvider),
       el('div', { className: 'acts' }, cancel, again)));
     this.emitState();
   }

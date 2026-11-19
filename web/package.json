@@ -8,9 +8,9 @@
     "typecheck": "node ../app/node_modules/typescript/bin/tsc --noEmit -p .",
     "build": "node build.mjs",
     "start": "npm run build && node bin/soma-web.cjs",
-    "test:unit": "node --experimental-strip-types --no-warnings --test test/unit.test.mts test/mirror.test.mts",
+    "test:unit": "node --experimental-strip-types --no-warnings --test test/unit.test.mts test/mirror.test.mts test/signin.test.mts",
     "test:server": "node --experimental-strip-types --no-warnings --test test/server.test.mts",
-    "test": "npm run build && node --experimental-strip-types --no-warnings --test test/unit.test.mts test/mirror.test.mts test/server.test.mts test/browser.test.mts",
+    "test": "npm run build && node --experimental-strip-types --no-warnings --test test/unit.test.mts test/mirror.test.mts test/signin.test.mts test/server.test.mts test/browser.test.mts",
     "test:browser": "node --experimental-strip-types --no-warnings --test test/browser.test.mts"
   },
   "dependencies": {

@@ -186,7 +186,7 @@ export class AiPage implements SettingsPage {
         again.hidden = !this.signInUrl;
         again.addEventListener('click', () => { if (this.signInUrl) void this.deps.api.openUrl(this.signInUrl); });
         const wait = el('div', { className: 'st-ai-wait' }, el('span', { className: 'spin' }, icon('spin', 14, 2.4)), el('span', { textContent: 'Waiting for the browser …' }), again, cancel);
-        const paste = pasteSignIn(this.deps.api);
+        const paste = pasteSignIn(this.deps.api, provider);
         control = paste.length ? el('div', {}, wait, ...paste) : wait;
       } else {
         const b = el('button', { className: 'btn sm acc', textContent: `Sign in with ${label}`, disabled: this.signing });

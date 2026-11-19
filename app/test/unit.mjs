@@ -603,6 +603,38 @@ try {
   const hc = SK.checkSkillText(guide);
   check('Anleitung ist ein gültiger Skill ohne Hinweise, Bei Bedarf für neue Modelle', !hc.errors.length && !hc.warnings.length && SK.parseSkill('soma-app', guide).defaultMode === 'demand',
     [...hc.errors, ...hc.warnings].join(' | '));
+
+  // Watching the project: also after the editor replaced a file by renaming (Linux watched file by file before)
+  const wOut = path.join(tmp, 'watcher.mjs');
+  await build({ entryPoints: [path.join(APP, 'src', 'main', 'watcher.ts')], outfile: wOut, bundle: true, platform: 'node', format: 'esm', logLevel: 'silent' });
+  const { watchProject } = await import(pathToFileURL(wOut).href);
+  const wdir = path.join(tmp, 'watched');
+  fs.mkdirSync(wdir);
+  fs.writeFileSync(path.join(wdir, 'model.py'), 'a');
+  const seen = [];
+  const stopWatch = watchProject(wdir, (rel) => seen.push(rel), () => {});
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  await pause(100);
+  fs.writeFileSync(path.join(wdir, '.model.py.tmp'), 'b');
+  fs.renameSync(path.join(wdir, '.model.py.tmp'), path.join(wdir, 'model.py'));
+  await pause(300);
+  seen.length = 0;
+  fs.writeFileSync(path.join(wdir, 'model.py'), 'c');
+  fs.mkdirSync(path.join(wdir, 'parts'));
+  await pause(100);
+  fs.writeFileSync(path.join(wdir, 'parts', 'lid.py'), 'd');
+  await pause(400);
+  // A folder deleted and made again at once (a tool that rewrites it): the new one is watched
+  fs.rmSync(path.join(wdir, 'parts'), { recursive: true });
+  fs.mkdirSync(path.join(wdir, 'parts'));
+  await pause(300);
+  const before = seen.length;
+  fs.writeFileSync(path.join(wdir, 'parts', 'base.py'), 'e');
+  await pause(400);
+  const recreated = seen.slice(before).some((r) => /parts[\\/]base\.py$/.test(r ?? ''));
+  stopWatch();
+  check('Watcher: a change after the file was replaced by renaming is seen, also in a new folder', seen.includes('model.py') && seen.some((r) => /parts[\\/]lid\.py$/.test(r ?? '')) && recreated, JSON.stringify(seen));
+
 } catch (e) {
   console.log('ABBRUCH:', e.message);
   t.fail();

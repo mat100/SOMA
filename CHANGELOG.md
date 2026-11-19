@@ -20,6 +20,7 @@ the version is bumped.
 
 ### Fixed
 
+- Linux: after saving a file in the editor, later changes to it by the agent or another program went unnoticed: no automatic build, the editor kept the old text. The app now watches each folder of the model itself (Node watches file by file on Linux and lost a file replaced on saving). This also made several test suites fail on Linux.
 - Exporting a single part as STEP or BREP could write only a shell instead of a solid, when the part was a CadQuery compound holding one solid. Thanks to SukbeomH (fork SukbeomH/SOMA) for spotting this.
 - "Open folder" is more careful with the folder: a `model.py` that appears while the confirmation is open is kept instead of replaced, `.soma/project.json` is backed up before it changes (an unreadable one is listed as a change first), and a folder where `.soma` is a file is refused with a message before anything is written. Thanks to vasilipuchko (fork zihotki/SOMA).
 - The viewer fits the model again when a rebuild takes it out of the picture, for example when the agent replaces the starter box with a table. A small change keeps the camera where you put it. "Fit" in a viewer narrower than high no longer cuts off the sides.

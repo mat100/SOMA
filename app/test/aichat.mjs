@@ -13,6 +13,8 @@ const t = checker();
 const { check } = t;
 
 const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-aichat-'));
+// Outside the model and outside the temp folder (SOMA AI may use the temp folder freely, the app data of the test are in it)
+const OUTSIDE = path.join(APP, 'test', 'outside.py');
 const steps = [
   { tool: 'ask_user', args: { questions: [
     { question: 'Which material?', header: 'Material', options: [{ label: 'PLA', description: 'Easy to print' }, { label: 'PETG', description: 'Tougher, a bit harder to print' }] },
@@ -22,7 +24,7 @@ const steps = [
   { tool: 'bash', args: { command: 'ls' } },
   { tool: 'bash', args: { command: 'ls -a' } },
   { tool: 'bash', args: { command: 'soma build' } },
-  { tool: 'bash', args: { command: 'cp model.py ../outside.py' } },
+  { tool: 'bash', args: { command: `cp model.py "${OUTSIDE.replace(/\\/g, '/')}"` } },
   { tool: 'bash', args: { command: 'git reset --hard HEAD' } },
   { text: 'Done, the lid is **2 mm** thicker now.' },
   { status: 401, message: 'invalid x-api-key' },
@@ -194,7 +196,7 @@ try {
   check('Steps in plain words: build done', labels[0] === 'ok: Built the model', labels[0]);
   check('… copy out of the folder: not allowed by the user', /^denied: You did not allow this/.test(labels[1] ?? ''), labels[1]);
   check('… going back in the history: stopped by SOMA, said for people (the agent\'s reason under Details)', /^stopped: SOMA stopped this: going back in the history\./.test(labels[2] ?? ''), labels[2]);
-  check('Nothing was copied out of the model folder', !fs.existsSync(path.join(dir, '..', 'outside.py')));
+  check('Nothing was copied out of the model folder', !fs.existsSync(OUTSIDE));
   check('The message went with the chip text', st.user.length === 1 && st.user[0].text.includes('[Part: Lid · top face]') && st.user[0].text.includes('Make the lid thicker.') && st.chips.length === 0, JSON.stringify(st.user));
   const md = await ev(() => document.querySelector('.ai-msg .md strong')?.textContent);
   check('The answer is shown as formatted text (Markdown as DOM)', md === '2 mm', md);

@@ -7,19 +7,21 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { checker, cleanup, startApp } from './harness.mjs';
+import { APP, checker, cleanup, startApp } from './harness.mjs';
 import { startMockLlm, useMockModel } from './mockllm.mjs';
 
 const t = checker();
 const { check } = t;
 
 const ud = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-somaai-'));
+// Outside the model and outside the temp folder (SOMA AI may use the temp folder freely, the app data of the test are in it)
+const OUTSIDE = path.join(APP, 'test', 'outside-copy.py');
 const auth = path.join(ud, 'somaai', 'auth.json');
 const steps = [
   { tool: 'bash', args: { command: 'echo "RUN_AS_NODE=[$ELECTRON_RUN_AS_NODE]"' } },
   { tool: 'bash', args: { command: 'soma build' } },
   { tool: 'bash', args: { command: 'mkdir -p parts && cp model.py parts/copy.py && ls parts' } },
-  { tool: 'bash', args: { command: 'cp model.py ../outside-copy.py' } },
+  { tool: 'bash', args: { command: `cp model.py "${OUTSIDE.replace(/\\/g, '/')}"` } },
   { tool: 'read', args: { path: auth } },
   { tool: 'bash', args: { command: 'git reset --hard HEAD' } },
   { text: 'Done, the box is built.' },
@@ -81,7 +83,7 @@ try {
   check('Commands pi runs do not inherit ELECTRON_RUN_AS_NODE', !step(0).error && step(0).text.includes('RUN_AS_NODE=[]'), step(0).text.slice(0, 120));
   check('soma build runs inside SOMA AI (Python, soma and bash on the PATH)', !step(1).error && step(1).text.includes('Build ok'), step(1).text.slice(0, 160));
   check('Copying and listing inside the model folder is allowed without a question', !step(2).error && step(2).text.includes('copy.py') && fs.existsSync(path.join(dir, 'parts', 'copy.py')), step(2).text.slice(0, 120));
-  check('Copying out of the model folder asks, and No blocks it', step(3).error && /denied/i.test(step(3).text) && !fs.existsSync(path.join(dir, '..', 'outside-copy.py')), step(3).text.slice(0, 160));
+  check('Copying out of the model folder asks, and No blocks it', step(3).error && /denied/i.test(step(3).text) && !fs.existsSync(OUTSIDE), step(3).text.slice(0, 160));
   check('Reading the sign-in of SOMA AI is denied without a question', step(4).error && /sign-in of SOMA AI/.test(step(4).text), step(4).text.slice(0, 200));
   check('Going back in the history is denied, the agent learns why', step(5).error && /forward only/.test(step(5).text), step(5).text.slice(0, 200));
   const asked = await ev(() => window.__ai.asked);

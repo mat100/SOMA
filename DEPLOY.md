@@ -29,3 +29,4 @@ on their way upstream and those that stay with us. This file exists only on this
 | `web` | `platform-interface` | PR 3 | The web version (`web/`) |
 | `web-mirror` | `web` | no | Synced folder for results (`SOMA_MIRROR_DIR`, Coder Desktop file sync) |
 | `somaai-claude-subscription` | `web` | not yet decided | SOMA AI sign-in with a Claude Pro/Max plan |
+| `web-model-folder` | `web-mirror` | no | The synced folder as the models' home |

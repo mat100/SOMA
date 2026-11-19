@@ -37,9 +37,11 @@ export async function startWebApp({ userData, watchdogMs = (Number(process.env.S
   }
 
   // WebGL without a GPU (CI, containers): SwiftShader, as the desktop tests use llvmpipe under xvfb
-  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  // A fake microphone for voice input (test/voice.mjs), allowed without asking, as Electron's test app has
+  const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist',
+    '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
   const context = await browser.newContext({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://127.0.0.1:${port}` });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write', 'microphone'], { origin: `http://127.0.0.1:${port}` });
   const p = await context.newPage();
   // window.soma.test.size (narrow windows, test/compact.mjs): the page cannot resize its window, the harness can
   await p.exposeFunction('__somaTestSize', (w, h) => p.setViewportSize({ width: Math.round(w), height: Math.round(h) }));

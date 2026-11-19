@@ -1,5 +1,6 @@
 import { createSomaApi } from '../../app/src/shared/api';
 import { closeDialogs, fileRequests } from './files';
+import { modelHome } from './home';
 import { removeRenderFrames, renderFrames } from './renderframe';
 import { WsTransport } from './transport';
 import { mirrorNotes, showOffline, showStopped, webRequests } from './webui';
@@ -22,6 +23,7 @@ void (async () => {
   });
   const env = await t.connect();
   window.soma = createSomaApi(t, { ...env, platform: 'web' });
+  if (env.modelHome) modelHome(t, window.soma);
   webRequests(t);
   mirrorNotes(t);
   fileRequests(t);

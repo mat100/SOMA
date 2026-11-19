@@ -2,7 +2,7 @@ import { fork } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { OpenDialogOptions, Platform, SaveDialogOptions, WorkerProcess } from '../../app/src/main/platform';
-import { checkOpenAnswer, checkSaveAnswer } from '../shared/files';
+import { checkOpenAnswer, checkSaveAnswer, type SaveAnswer } from '../shared/files';
 import { insideRoot, type Files } from './files';
 import type { RenderFrames } from './render';
 import type { Tabs } from './tabs';
@@ -13,6 +13,11 @@ export interface WebConfig {
   userData: string;
   /** Folder on the server the dialogs may show (the user's home). */
   filesRoot: string;
+  /**
+   * The synced folder when it is below filesRoot: the models' home (main.ts). Opening a model starts there in the folder
+   * browser, and the dialogs can make folders.
+   */
+  modelHome?: string | null;
 }
 
 /**
@@ -29,8 +34,11 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
     packagedResources: () => null,
     send: (channel, ...args) => tabs.emit(channel, files.forPage(args)),
     async showOpenDialog(o: OpenDialogOptions) {
-      const a = checkOpenAnswer(await tabs.request('web:openDialog', [{ ...o, defaultPath: dialogDir(root, o.defaultPath), root }], true),
-        !!o.forExport && o.properties.includes('openDirectory'));
+      const model = !!o.filters?.some((f) => f.extensions.includes('soma'));
+      // A model opens from the models' home first, where its folder is
+      const home = model && cfg.modelHome && !o.defaultPath ? cfg.modelHome : null;
+      const req = { ...o, defaultPath: dialogDir(root, home ?? o.defaultPath), root, mkdir: !!cfg.modelHome, browseFirst: !!home };
+      const a = checkOpenAnswer(await tabs.request('web:openDialog', [req], true), !!o.forExport && o.properties.includes('openDirectory'));
       if (!a) return [];
       if (a.kind === 'download') {
         // A folder for exported files, downloaded as a ZIP once they are written. Not named after the suggested folder:
@@ -42,16 +50,13 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
       // Only what this server handed out: uploads, or places below the folder the dialogs show
       const paths = a.paths.filter((p) => (a.kind === 'upload' ? insideRoot(files.uploads, p) : insideRoot(root, p)));
       // An uploaded model (.soma, .zip) stays the file the model saves to, as on the desktop: saving downloads it again
-      const model = o.filters?.some((f) => f.extensions.includes('soma'));
       return a.kind === 'upload' && model ? paths.map((p) => files.adopt(p)) : paths;
     },
     async showSaveDialog(o: SaveDialogOptions) {
       const name = path.basename(o.defaultPath ?? '') || 'file';
       const dir = dialogDir(root, o.defaultPath ? path.dirname(o.defaultPath) : undefined);
-      const a = checkSaveAnswer(await tabs.request('web:saveDialog', [{ ...o, name, defaultPath: dir, root }], true));
-      if (!a) return null;
-      if (a.kind === 'download') return files.stage(a.name || name);
-      return insideRoot(root, a.path) ? path.resolve(a.path) : null;
+      const a = checkSaveAnswer(await tabs.request('web:saveDialog', [{ ...o, name, defaultPath: dir, root, mkdir: !!cfg.modelHome }], true));
+      return saveTarget(root, files, a, name);
     },
     // Questions are asked in the page (dialogs.ts). Without a page nobody can answer: the safe way is canceling.
     showMessageBox: async (o) => o.cancelId ?? Math.max(0, (o.buttons?.length ?? 1) - 1),
@@ -91,6 +96,13 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
       };
     },
   };
+}
+
+/** The path for an answer of the save dialog (download or a place below the root), null when canceled or not allowed. */
+export function saveTarget(root: string, files: Files, a: SaveAnswer, name: string): string | null {
+  if (!a || a.kind === 'model') return null;
+  if (a.kind === 'download') return files.stage(a.name || name);
+  return insideRoot(root, a.path) ? path.resolve(a.path) : null;
 }
 
 /** Where a dialog starts: the suggested folder when it is below the root, otherwise the root. */

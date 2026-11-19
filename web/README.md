@@ -49,9 +49,30 @@ library `soma`. Only what Electron did is replaced. Projects are the same `.soma
 - The folder is named after the model. A folder of that name that belongs to another model or to the user is left alone:
   then the name gets the start of the model's ID. A renamed model starts a new folder, the old one stays.
 - A model opened as a folder ("Open folder") has no saves: only its results are copied.
-- In a Coder workspace: set `SOMA_MIRROR_DIR` on a persistent volume (e.g. `/home/coder/SOMA-files`), then in Coder
-  Desktop on the computer turn on Coder Connect and add a file sync between a local folder and that path. The sync runs
-  while the workspace runs; results made meanwhile arrive at its next start.
+- Known limits: two saves within about a second make one version folder; a file changed on the computer in the very
+  moment SOMA replaces it can be lost (the sync tool reports such conflicts itself); names differing only in case
+  collide on Windows and macOS.
+
+### In a Coder workspace
+
+The template sets the variable on the persistent home volume and makes the folder:
+
+```hcl
+resource "coder_agent" "main" {
+  # …
+  env = {
+    SOMA_MIRROR_DIR = "/home/coder/SOMA-files"
+  }
+  startup_script = <<-EOT
+    mkdir -p /home/coder/SOMA-files
+    # … start the SOMA web server as before
+  EOT
+}
+```
+
+Each user, once per workspace: install Coder Desktop, turn on Coder Connect, and under File Sync add a pair of a new
+local folder (e.g. `C:\SOMA`) and `/home/coder/SOMA-files` of the workspace. The sync runs while the workspace runs;
+results made meanwhile arrive on the computer at its next start.
 
 ## Commands
 

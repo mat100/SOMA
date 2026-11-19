@@ -316,23 +316,29 @@ test('ChatGPT sign-in: the address the page ended at reaches pi (the callback ca
   assert.equal(sent.ok, true);
   const r = await signing;
   assert.equal(r.ok, false);
-  assert.match(r.error ?? '', /state/i);
+  assert.match(r.error ?? '', /This address belongs to another sign-in/);
   a.ws.close();
 });
 
-test('Claude sign-in: the pasted address of its callback reaches pi as well', async () => {
+test('Claude sign-in: Anthropic\'s copy-code login, the pasted code reaches pi (claude.ai cannot come back to a server)', async () => {
   const a = await tab('page-claude');
   await a.next((m) => m.t === 'welcome');
   const signing = a.invoke('ai:signIn', 'anthropic') as Promise<{ ok: boolean; error?: string }>;
   const url = await a.next((m) => m.t === 'event' && m.ch === 'ai:signInUrl', 30_000) as Extract<ServerMessage, { t: 'event' }>;
-  assert.match(String(url.args[0]), /^https:\/\/claude\.ai\/oauth\/authorize\?/);
-  const wrong = await a.invoke('ai:signInCode', 'http://127.0.0.1:1455/auth/callback?code=a&state=b') as { ok: boolean; error?: string };
-  assert.equal(wrong.ok, false, 'the ChatGPT callback is not Claude\'s');
-  assert.match(wrong.error ?? '', /localhost:53692\/callback/);
-  const sent = await a.invoke('ai:signInCode', 'http://localhost:53692/callback?code=abc&state=not-the-right-one') as { ok: boolean };
+  const page = new URL(String(url.args[0]));
+  assert.equal(`${page.origin}${page.pathname}`, 'https://claude.ai/oauth/authorize');
+  // Anthropic shows the code on its own page instead of sending the browser to localhost
+  assert.equal(page.searchParams.get('redirect_uri'), 'https://platform.claude.com/oauth/code/callback');
+  const local = await a.invoke('ai:signInCode', 'http://localhost:53692/callback?code=abc&state=def') as { ok: boolean; error?: string };
+  assert.equal(local.ok, false, 'no localhost address: the code is asked for');
+  assert.match(local.error ?? '', /code/i);
+  const junk = await a.invoke('ai:signInCode', 'not a code') as { ok: boolean; error?: string };
+  assert.equal(junk.ok, false);
+  // A real code cannot exist in a test: pi takes the code and refuses its state, which proves it got there
+  const sent = await a.invoke('ai:signInCode', 'abcdefgh1234#not-the-right-state-but-43-characters-long0') as { ok: boolean };
   assert.equal(sent.ok, true);
   const r = await signing;
   assert.equal(r.ok, false);
-  assert.match(r.error ?? '', /state/i);
+  assert.match(r.error ?? '', /another sign-in/);
   a.ws.close();
 });

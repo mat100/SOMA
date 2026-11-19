@@ -47,9 +47,14 @@ const listZip = (p) => new Promise((resolve, reject) => yauzl.open(p, { lazyEntr
 // Temp-Pfade können Kurznamen (NAME~1) enthalten: nicht als Zeichenkette vergleichen
 const samePath = (a, b) => { try { return fs.realpathSync.native(a).toLowerCase() === fs.realpathSync.native(b).toLowerCase(); } catch { return false; } };
 
+/** site-packages of an environment: Lib\site-packages on Windows, lib/pythonX.Y/site-packages elsewhere. */
+const siteOf = (env) => (process.platform === 'win32' ? path.join(env, 'Lib', 'site-packages')
+  : path.join(env, 'lib', (fs.existsSync(path.join(env, 'lib')) ? fs.readdirSync(path.join(env, 'lib')).find((d) => /^python3/.test(d)) : null) ?? 'python3', 'site-packages'));
+
 const dirSize = (d) => {
   let n = 0;
-  for (const e of fs.readdirSync(d, { withFileTypes: true })) n += e.isDirectory() ? dirSize(path.join(d, e.name)) : fs.statSync(path.join(d, e.name)).size;
+  // lstat: on Linux and macOS bin/python* are links to the base Python, which is not part of the environment
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) n += e.isDirectory() ? dirSize(path.join(d, e.name)) : fs.lstatSync(path.join(d, e.name)).size;
   return n;
 };
 
@@ -67,7 +72,7 @@ try {
   const proj = await ev(() => window.__t.project());
   const dir = proj.dir;
   const envDir = path.join(dir, '.soma', 'env');
-  const site = path.join(envDir, 'Lib', 'site-packages');
+  const site = siteOf(envDir);
   const req = path.join(dir, 'requirements.txt');
   const g = async (...args) => (await exec(args, dir)).stdout.trim();
   const until = async (fn, ms = 20000) => { for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200)) if (fn()) return true; return fn(); };
@@ -75,7 +80,8 @@ try {
   // ---- 1) Umgebung beim Öffnen ----
   check('Projektumgebung liegt unter .soma/env', await until(() => fs.existsSync(path.join(envDir, 'pyvenv.cfg')) && fs.existsSync(path.join(envDir, 'soma-env.json'))));
   check('Sie ist klein (Basis wird mitbenutzt, nicht kopiert)', dirSize(envDir) < 5 * 1024 ** 2, `${Math.round(dirSize(envDir) / 1024)} KB`);
-  check('pip.ini legt die Basisversionen fest', fs.readFileSync(path.join(envDir, 'pip.ini'), 'utf8').includes('constraint = file:')
+  // pip reads pip.ini on Windows and pip.conf elsewhere (python/soma/env.py)
+  check('pip.ini legt die Basisversionen fest', fs.readFileSync(path.join(envDir, process.platform === 'win32' ? 'pip.ini' : 'pip.conf'), 'utf8').includes('constraint = file:')
     && /^numpy==/m.test(fs.readFileSync(path.join(envDir, 'base-constraints.txt'), 'utf8')));
   check('.gitignore der Vorlage nennt .soma/env/', fs.readFileSync(path.join(dir, '.gitignore'), 'utf8').includes('.soma/env/'));
   check('Ohne Zusatzpakete entsteht keine requirements.txt', !fs.existsSync(req));
@@ -111,7 +117,8 @@ try {
   check('Basispakete gelten als vorhanden (numpy wird nicht noch einmal installiert)', await type('pip install numpy', 'Requirement already satisfied: numpy'));
   check('Eine andere numpy-Version lehnt pip ab (Basis bleibt, wie sie ist)', await type('pip install somabadpkg', 'constraint\\) numpy==|ResolutionImpossible')
     && !fs.existsSync(path.join(site, 'somabadpkg')));
-  check('`python` im Terminal sieht Basis und Zusatzpaket', await type('python -c "import cadquery, somatestpkg; print(\'PKG\', somatestpkg.SIZE)"', '^PKG 12\\.5', 60000));
+  const sees = await type('python -c "import cadquery, somatestpkg; print(\'PKG\', somatestpkg.SIZE)"', '^PKG 12\\.5', 60000);
+  check('`python` im Terminal sieht Basis und Zusatzpaket', sees, sees ? '' : (await termText()).trim().slice(-300));
 
   // ---- 3) soma build hält das Paket fest ----
   const modelPy = path.join(dir, 'model.py');
@@ -177,7 +184,7 @@ try {
   }
   check('Beim Öffnen zeigt die Statuszeile „Installing packages …“', sawInstalling);
   const dir2 = (await ev(() => window.__t.project())).dir; // neue App-Daten, also ein anderer Arbeitsordner
-  const site2 = path.join(dir2, '.soma', 'env', 'Lib', 'site-packages');
+  const site2 = siteOf(path.join(dir2, '.soma', 'env'));
   const req2 = path.join(dir2, 'requirements.txt');
   check('Paket wurde aus requirements.txt installiert, der Build gelingt', fs.existsSync(path.join(site2, 'somatestpkg', '__init__.py'))
     && (await ev(() => window.__t.status().state)) === 'ok', (await ev(() => window.__t.status().viewerMsg)).slice(0, 120));

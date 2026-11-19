@@ -2,8 +2,8 @@
  * SOMA AI (main/somaai.ts): the ways in that SOMA offers, and the models it recommends. Shared by the main process
  * (checks what the chat asks for) and the chat (shows it).
  *
- * Decisions of the user (2026-11-16): ChatGPT through "Sign in with ChatGPT" and API keys. No login with a Claude
- * subscription (Anthropic does not allow it in other apps) and none with GitHub Copilot. A recommendation for the best
+ * Decisions of the user (2026-11-16): ChatGPT through "Sign in with ChatGPT" and API keys, none with GitHub Copilot.
+ * Since 2026-11-17 also "Sign in with Claude" with a Claude Pro or Max plan (branch of its own, not part of the web PR). A recommendation for the best
  * models instead of quality levels: they would have to be kept up to date for every provider.
  */
 
@@ -21,6 +21,10 @@ export const AI_KEY_PROVIDERS: AiKeyProvider[] = [
 
 /** "Sign in with ChatGPT" is pi's provider `openai` with its account login (OpenAI's flow for agents of other makers). */
 export const CHATGPT_PROVIDER = 'openai';
+/** "Sign in with Claude": pi's provider `anthropic` with the login of a Claude Pro or Max plan. */
+export const CLAUDE_PROVIDER = 'anthropic';
+/** Providers with an account login (a plan instead of an API key), and their name for people. */
+export const ACCOUNT_PROVIDERS: Record<string, string> = { [CHATGPT_PROVIDER]: 'ChatGPT', [CLAUDE_PROVIDER]: 'Claude' };
 
 /** Model SOMA chooses after signing in, per provider. Providers without an entry keep pi's choice. */
 export const RECOMMENDED_MODEL: Record<string, string> = {
@@ -59,6 +63,6 @@ export interface AiAccount { provider: string; type: 'oauth' | 'api_key' }
 
 /** What people see as the name of a sign-in. */
 export function accountLabel(a: AiAccount): string {
-  if (a.provider === CHATGPT_PROVIDER && a.type === 'oauth') return 'ChatGPT';
+  if (a.type === 'oauth' && ACCOUNT_PROVIDERS[a.provider]) return ACCOUNT_PROVIDERS[a.provider];
   return AI_KEY_PROVIDERS.find((p) => p.id === a.provider)?.label ?? a.provider;
 }

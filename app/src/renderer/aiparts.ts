@@ -52,7 +52,7 @@ export function keyForm(deps: KeyFormDeps): HTMLElement[] {
  */
 export function pasteSignIn(api: SomaApi): HTMLElement[] {
   if (api.platform !== 'web') return [];
-  const field = el('input', { className: 'ai-field grow', type: 'text', placeholder: 'http://127.0.0.1:1455/auth/callback?…', autocomplete: 'off', spellcheck: false });
+  const field = el('input', { className: 'ai-field grow', type: 'text', placeholder: 'http://127.0.0.1:…/callback?code=…', autocomplete: 'off', spellcheck: false });
   field.setAttribute('aria-label', 'Address of the page');
   const err = el('div', { className: 'ai-err' });
   const send = el('button', { className: 'btn sm', textContent: 'Sign in' });
@@ -64,7 +64,7 @@ export function pasteSignIn(api: SomaApi): HTMLElement[] {
   send.addEventListener('click', () => void doSend());
   field.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void doSend(); } });
   return [
-    el('p', { className: 'c2', textContent: 'After you allowed SOMA AI, the page ends at an address that does not load (it starts with http://127.0.0.1:1455). Copy that address from the address bar and paste it here:' }),
+    el('p', { className: 'c2', textContent: 'After you allowed SOMA AI, the page ends at an address that does not load (it starts with http://127.0.0.1 or http://localhost). Copy that address from the address bar and paste it here:' }),
     el('div', { className: 'ai-keyrow' }, field, send), err,
   ];
 }

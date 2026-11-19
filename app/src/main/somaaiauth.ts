@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { AI_KEY_PROVIDERS, CHATGPT_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
+import { ACCOUNT_PROVIDERS, AI_KEY_PROVIDERS, CHATGPT_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
 import type { AiResult, AiSignInResult } from '../shared/types';
 import { appRoot } from './paths';
 import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
@@ -11,13 +11,14 @@ import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
  * Sign-in of SOMA AI. pi keeps it in auth.json of its own folder (aiDir()), SOMA reads and writes that file only here
  * and never passes a key or token on to the window: the chat sees which providers are signed in and how, nothing more.
  * - API key: written into auth.json in pi's format ({ type: 'api_key', key }), as pi's own `/login` does.
- * - ChatGPT: pi's own login (ModelRuntime.login, as `pi auth login openai`) in resources/somaai/signin.mjs. pi names
- *   the sign-in page, SOMA opens it in the browser and waits until pi has the token from its callback on 127.0.0.1.
+ * - ChatGPT, Claude (Pro/Max): pi's own login (ModelRuntime.login, as `pi auth login openai|anthropic`) in
+ *   resources/somaai/signin.mjs. pi names the sign-in page, SOMA opens it in the browser and waits until pi has the
+ *   token from its callback on this computer.
  */
 
 const authFile = () => path.join(aiDir(), 'auth.json');
 const settingsFile = () => path.join(aiDir(), 'settings.json');
-const KNOWN = new Set([CHATGPT_PROVIDER, ...AI_KEY_PROVIDERS.map((p) => p.id)]);
+const KNOWN = new Set([...Object.keys(ACCOUNT_PROVIDERS), ...AI_KEY_PROVIDERS.map((p) => p.id)]);
 const SIGN_IN_MS = 15 * 60_000;
 
 /** The saved sign-ins SOMA offers (others in auth.json stay as they are and are not shown). */
@@ -82,14 +83,16 @@ function deviceId(): string {
   return s.deviceId as string;
 }
 
-let signing: { child: ChildProcess; cancelled: boolean } | null = null;
+let signing: { child: ChildProcess; cancelled: boolean; provider: string } | null = null;
 
 /**
- * "Sign in with ChatGPT" through resources/somaai/signin.mjs (pi's SDK over pipes, see there). `onUrl` gets the
- * sign-in page as soon as pi names it, the caller opens it (not in tests). Ends when pi has saved the token, failed,
- * or the user cancels.
+ * Sign in with an account ("Sign in with ChatGPT", "Sign in with Claude") through resources/somaai/signin.mjs (pi's SDK
+ * over pipes, see there). `onUrl` gets the sign-in page as soon as pi names it, the caller opens it (not in tests).
+ * Ends when pi has saved the token, failed, or the user cancels.
  */
-export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInResult> {
+export function signInAccount(provider: string, onUrl: (url: string) => void): Promise<AiSignInResult> {
+  if (!ACCOUNT_PROVIDERS[provider]) return Promise.resolve({ ok: false, error: 'Unknown sign-in.' });
+  const label = ACCOUNT_PROVIDERS[provider];
   if (signing) return Promise.resolve({ ok: false, error: 'A sign-in is already running.' });
   const index = piIndex();
   const helper = path.join(appRoot(), 'resources', 'somaai', 'signin.mjs');
@@ -98,12 +101,12 @@ export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInRes
   try { fs.mkdirSync(aiDir(), { recursive: true }); id = deviceId(); }
   catch (e) { return Promise.resolve({ ok: false, error: `SOMA AI could not write its settings: ${e instanceof Error ? e.message : String(e)}` }); }
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [helper, index, authFile(), CHATGPT_PROVIDER, id], {
+    const child = spawn(process.execPath, [helper, index, authFile(), provider, id], {
       cwd: aiDir(), env: piProcessEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     });
-    const me = { child, cancelled: false };
+    const me = { child, cancelled: false, provider };
     signing = me;
-    console.log('[somaai] sign-in with ChatGPT started');
+    console.log(`[somaai] sign-in with ${label} started`);
     const timer = setTimeout(() => cancelSignIn(), SIGN_IN_MS);
     let error = '';
     let buf = '';
@@ -129,14 +132,14 @@ export function signInChatGPT(onUrl: (url: string) => void): Promise<AiSignInRes
       settled = true;
       clearTimeout(timer);
       if (signing === me) signing = null;
-      if (code === 0 && aiAccounts().some((a) => a.provider === CHATGPT_PROVIDER && a.type === 'oauth')) {
-        try { useProvider(CHATGPT_PROVIDER); } catch { /* the model choice stays pi's */ }
-        console.log('[somaai] signed in with ChatGPT');
+      if (code === 0 && aiAccounts().some((a) => a.provider === provider && a.type === 'oauth')) {
+        try { useProvider(provider); } catch { /* the model choice stays pi's */ }
+        console.log(`[somaai] signed in with ${label}`);
         resolve({ ok: true });
       } else if (me.cancelled || error === 'cancelled') resolve({ ok: false, cancelled: true });
       else {
         const why = (error || stderr.trim().split(/\r?\n/).slice(-2).join(' ') || 'Signing in did not work.').slice(0, 400);
-        console.log(`[somaai] sign-in with ChatGPT failed (code ${code}): ${why}`);
+        console.log(`[somaai] sign-in with ${label} failed (code ${code}): ${why}`);
         resolve({ ok: false, error: why });
       }
     };
@@ -249,10 +252,9 @@ export function setDefaultEffort(level: unknown): { ok: boolean; error?: string 
   return { ok: true };
 }
 
-/** Closing stdin cancels pi's login. The callback server on 127.0.0.1 goes with the process. */
 /**
- * The address the sign-in page of ChatGPT ended at, pasted by the user. Needed where the browser cannot reach pi's
- * callback on this computer (the web version: pi runs on a server). pi takes it instead of the callback.
+ * The address the sign-in page ended at, pasted by the user. Needed where the browser cannot reach pi's callback on this
+ * computer (the web version: pi runs on a server). pi takes it instead of the callback.
  */
 export function submitSignInCode(url: unknown): AiResult {
   if (!signing) return { ok: false, error: 'No sign-in is running.' };
@@ -261,13 +263,18 @@ export function submitSignInCode(url: unknown): AiResult {
   try { parsed = u.length <= 8000 ? new URL(u) : null; } catch { /* not an address */ }
   // Only the callback with what pi needs (its state it checks itself): a wrong paste would end the sign-in
   const q = parsed?.searchParams;
-  if (!parsed || parsed.origin !== 'http://127.0.0.1:1455' || parsed.pathname !== '/auth/callback' || !(q?.get('error') || (q?.get('code') && q.get('state')))) {
-    return { ok: false, error: 'Paste the whole address the page ended at. It starts with http://127.0.0.1:1455/auth/callback?' };
+  // pi's callbacks: ChatGPT on 127.0.0.1:1455/auth/callback, Claude on localhost:<port>/callback (53692, another one when taken)
+  const chatgpt = signing.provider === CHATGPT_PROVIDER;
+  const place = chatgpt ? parsed?.origin === 'http://127.0.0.1:1455' && parsed.pathname === '/auth/callback'
+    : !!parsed && parsed.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(parsed.hostname) && parsed.pathname === '/callback';
+  if (!parsed || !place || !(q?.get('error') || (q?.get('code') && q.get('state')))) {
+    return { ok: false, error: `Paste the whole address the page ended at. It starts with ${chatgpt ? 'http://127.0.0.1:1455/auth/callback?' : 'http://localhost:53692/callback?'}` };
   }
   try { signing.child.stdin?.write(`${JSON.stringify({ code: u })}\n`); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   return { ok: true };
 }
 
+/** Closing stdin cancels pi's login. The callback server on 127.0.0.1 goes with the process. */
 export function cancelSignIn(): void {
   if (!signing) return;
   signing.cancelled = true;

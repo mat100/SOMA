@@ -37,6 +37,7 @@ One branch per worktree, the name of the branch does not change while it has one
 |---|---|
 | `~/SOMA-deploy` | `deploy` (the dev server on port 5173 runs from here) |
 | `~/SOMA` | `platform-interface` |
+| `~/SOMA-web` | `web` |
 | `~/SOMA-folder` | `web-synced-folder` |
 | `~/SOMA-buildinfo` | `web-build-info` |
 | `~/SOMA-signin` | `web-somaai-signin` |

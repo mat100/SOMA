@@ -2,9 +2,11 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ACCOUNT_PROVIDERS, AI_KEY_PROVIDERS, CHATGPT_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
+import { ACCOUNT_PROVIDERS, AI_KEY_PROVIDERS, CHATGPT_PROVIDER, CLAUDE_PROVIDER, isEffort, RECOMMENDED_MODEL, type AiAccount, type Effort, type AiModel, type AiSession } from '../shared/somaai';
 import type { AiResult, AiSignInResult } from '../shared/types';
 import { appRoot } from './paths';
+import { platform } from './platform';
+import { checkPasted, signInError, signInMethod, type SignInMethod } from './signincode';
 import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
 
 /*
@@ -13,7 +15,9 @@ import { aiDir, piIndex, piProcessEnv, readJson, writeJson } from './somaai';
  * - API key: written into auth.json in pi's format ({ type: 'api_key', key }), as pi's own `/login` does.
  * - ChatGPT, Claude (Pro/Max): pi's own login (ModelRuntime.login, as `pi auth login openai|anthropic`) in
  *   resources/somaai/signin.mjs. pi names the sign-in page, SOMA opens it in the browser and waits until pi has the
- *   token from its callback on this computer.
+ *   token from its callback on this computer. Where the browser is on another computer (Platform.remoteBrowser, the web
+ *   version) the user pastes what pi needs: the address the page ended at (ChatGPT), or the code Anthropic shows
+ *   (Claude, pi's copy-code login: claude.ai cannot send a browser back to a server's localhost).
  */
 
 const authFile = () => path.join(aiDir(), 'auth.json');
@@ -83,7 +87,7 @@ function deviceId(): string {
   return s.deviceId as string;
 }
 
-let signing: { child: ChildProcess; cancelled: boolean; provider: string } | null = null;
+let signing: { child: ChildProcess; cancelled: boolean; timedOut: boolean; provider: string; method: SignInMethod } | null = null;
 
 /**
  * Sign in with an account ("Sign in with ChatGPT", "Sign in with Claude") through resources/somaai/signin.mjs (pi's SDK
@@ -101,13 +105,15 @@ export function signInAccount(provider: string, onUrl: (url: string) => void): P
   try { fs.mkdirSync(aiDir(), { recursive: true }); id = deviceId(); }
   catch (e) { return Promise.resolve({ ok: false, error: `SOMA AI could not write its settings: ${e instanceof Error ? e.message : String(e)}` }); }
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [helper, index, authFile(), provider, id], {
+    const remote = platform().remoteBrowser === true;
+    const method = signInMethod(provider === CLAUDE_PROVIDER, remote);
+    const child = spawn(process.execPath, [helper, index, authFile(), provider, id, method], {
       cwd: aiDir(), env: piProcessEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     });
-    const me = { child, cancelled: false, provider };
+    const me = { child, cancelled: false, timedOut: false, provider, method };
     signing = me;
-    console.log(`[somaai] sign-in with ${label} started`);
-    const timer = setTimeout(() => cancelSignIn(), SIGN_IN_MS);
+    console.log(`[somaai] sign-in with ${label} started${method === 'copy_code' ? ' (code to paste)' : ''}`);
+    const timer = setTimeout(() => { if (signing === me) { me.timedOut = true; cancelSignIn(); } }, SIGN_IN_MS);
     let error = '';
     let buf = '';
     child.stdout?.setEncoding('utf8');
@@ -136,15 +142,22 @@ export function signInAccount(provider: string, onUrl: (url: string) => void): P
         try { useProvider(provider); } catch { /* the model choice stays pi's */ }
         console.log(`[somaai] signed in with ${label}`);
         resolve({ ok: true });
+      } else if (me.timedOut && remote) {
+        console.log(`[somaai] sign-in with ${label} stopped after ${SIGN_IN_MS / 60_000} minutes`);
+        resolve({ ok: false, error: `The sign-in was stopped after ${SIGN_IN_MS / 60_000} minutes. Start it again.` });
       } else if (me.cancelled || error === 'cancelled') resolve({ ok: false, cancelled: true });
       else {
-        const why = (error || stderr.trim().split(/\r?\n/).slice(-2).join(' ') || 'Signing in did not work.').slice(0, 400);
+        const raw = error || stderr.trim().split(/\r?\n/).slice(-2).join(' ');
+        // The web version tells what went wrong in words (a pasted code fails more often than a callback); the desktop
+        // keeps pi's message as it was
+        const why = remote ? signInError(raw, label, method === 'copy_code' ? 'code' : 'address') : (raw || 'Signing in did not work.').slice(0, 400);
         console.log(`[somaai] sign-in with ${label} failed (code ${code}): ${why}`);
         resolve({ ok: false, error: why });
       }
     };
     child.once('error', (e) => { error = e.message; done(null); });
-    child.once('exit', (code) => done(code));
+    // 'close', not 'exit': after the last line of stdout and stderr (pi's error) has arrived
+    child.once('close', (code) => done(code));
   });
 }
 
@@ -253,23 +266,16 @@ export function setDefaultEffort(level: unknown): { ok: boolean; error?: string 
 }
 
 /**
- * The address the sign-in page ended at, pasted by the user. Needed where the browser cannot reach pi's callback on this
- * computer (the web version: pi runs on a server). pi takes it instead of the callback.
+ * What the user pasted: the address the sign-in page ended at, or the code Anthropic shows (copy code). Needed where the
+ * browser cannot reach pi's callback on this computer (the web version: pi runs on a server). pi takes it instead of the
+ * callback.
  */
 export function submitSignInCode(url: unknown): AiResult {
   if (!signing) return { ok: false, error: 'No sign-in is running.' };
-  const u = typeof url === 'string' ? url.trim() : '';
-  let parsed: URL | null = null;
-  try { parsed = u.length <= 8000 ? new URL(u) : null; } catch { /* not an address */ }
-  // Only the callback with what pi needs (its state it checks itself): a wrong paste would end the sign-in
-  const q = parsed?.searchParams;
-  // pi's callbacks: ChatGPT on 127.0.0.1:1455/auth/callback, Claude on localhost:<port>/callback (53692, another one when taken)
-  const chatgpt = signing.provider === CHATGPT_PROVIDER;
-  const place = chatgpt ? parsed?.origin === 'http://127.0.0.1:1455' && parsed.pathname === '/auth/callback'
-    : !!parsed && parsed.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(parsed.hostname) && parsed.pathname === '/callback';
-  if (!parsed || !place || !(q?.get('error') || (q?.get('code') && q.get('state')))) {
-    return { ok: false, error: `Paste the whole address the page ended at. It starts with ${chatgpt ? 'http://127.0.0.1:1455/auth/callback?' : 'http://localhost:53692/callback?'}` };
-  }
+  // Only what pi waits for (its state it checks itself): a wrong paste would end the sign-in. Never logged.
+  const c = checkPasted(url, signing.provider === CHATGPT_PROVIDER, signing.method);
+  if (!c.ok) return { ok: false, error: c.error };
+  const u = c.value;
   try { signing.child.stdin?.write(`${JSON.stringify({ code: u })}\n`); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : String(e) }; }
   return { ok: true };
 }

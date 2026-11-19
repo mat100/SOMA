@@ -37,6 +37,11 @@ export interface Platform {
   microphoneAccess(): Promise<{ ok: boolean; error?: string }>;
   /** A Node script in a process of its own that talks by messages (speech recognition, voice.ts). `name` for the system. */
   forkWorker(script: string, args: string[], name: string): WorkerProcess;
+  /**
+   * The user's browser runs on another computer (the web version): sign-in pages cannot send it back to a callback on
+   * this one, so the sign-in of SOMA AI asks for a code instead where the provider offers that. Missing: false.
+   */
+  readonly remoteBrowser?: boolean;
 }
 
 /**

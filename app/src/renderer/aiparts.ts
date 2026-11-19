@@ -1,4 +1,4 @@
-import { AI_KEY_PROVIDERS, EFFORT_LABEL, isRecommendedModel, RECOMMENDED_EFFORT, type AiModel, type Effort } from '../shared/somaai';
+import { AI_KEY_PROVIDERS, CLAUDE_PROVIDER, EFFORT_LABEL, isRecommendedModel, RECOMMENDED_EFFORT, type AiModel, type Effort } from '../shared/somaai';
 import type { SomaApi } from '../shared/types';
 import { icon } from './icons';
 import { el, menuItem, menus } from './ui';
@@ -46,14 +46,19 @@ export function keyForm(deps: KeyFormDeps): HTMLElement[] {
 }
 
 /**
- * While signing in with ChatGPT in the web version: the page of ChatGPT sends the browser back to pi on the server's own
- * address (127.0.0.1:1455), which the user's browser cannot reach. The page then fails to load; its address is what pi
- * needs. Empty on the desktop, where that works by itself.
+ * While signing in in the web version, where the sign-in page cannot send the browser back to pi on the server:
+ * - ChatGPT sends it to the server's own address (127.0.0.1:1455), the page fails to load; its address is what pi needs.
+ * - Claude: the server asks for Anthropic's copy-code login (somaaiauth.ts), the page shows a code to paste here.
+ * Empty on the desktop, where the callback works by itself.
  */
-export function pasteSignIn(api: SomaApi): HTMLElement[] {
+export function pasteSignIn(api: SomaApi, provider: string): HTMLElement[] {
   if (api.platform !== 'web') return [];
-  const field = el('input', { className: 'ai-field grow', type: 'text', placeholder: 'http://127.0.0.1:…/callback?code=…', autocomplete: 'off', spellcheck: false });
-  field.setAttribute('aria-label', 'Address of the page');
+  const code = provider === CLAUDE_PROVIDER;
+  const field = el('input', {
+    className: 'ai-field grow', type: 'text', autocomplete: 'off', spellcheck: false,
+    placeholder: code ? 'Code from the Anthropic page' : 'http://127.0.0.1:…/callback?code=…',
+  });
+  field.setAttribute('aria-label', code ? 'Code from the Anthropic page' : 'Address of the page');
   const err = el('div', { className: 'ai-err' });
   const send = el('button', { className: 'btn sm', textContent: 'Sign in' });
   const doSend = async () => {
@@ -64,7 +69,9 @@ export function pasteSignIn(api: SomaApi): HTMLElement[] {
   send.addEventListener('click', () => void doSend());
   field.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); void doSend(); } });
   return [
-    el('p', { className: 'c2', textContent: 'After you allowed SOMA AI, the page ends at an address that does not load (it starts with http://127.0.0.1 or http://localhost). Copy that address from the address bar and paste it here:' }),
+    el('p', { className: 'c2', textContent: code
+      ? 'After you clicked "Authorize", the Anthropic page shows a code. Copy it (with the button next to it) and paste it here:'
+      : 'After you allowed SOMA AI, the page ends at an address that does not load (it starts with http://127.0.0.1 or http://localhost). Copy that address from the address bar and paste it here:' }),
     el('div', { className: 'ai-keyrow' }, field, send), err,
   ];
 }

@@ -23,6 +23,56 @@ library `soma`. Only what Electron did is replaced. Projects are the same `.soma
   with the render page of the desktop app. Without an open tab `soma render` says so. A tab in the background may be
   slowed down by the browser; a long video is best made with the tab in front. Videos are H.264 where the browser can
   encode it, otherwise VP9 (as on the desktop).
+- **Results reach the user's computer through a synced folder, not through SOMA.** With `SOMA_MIRROR_DIR` the server
+  keeps the results of the open model as plain files in a folder of its own, one folder per model (`server/mirror.ts`);
+  a sync tool brings that folder to the user's computer. In a Coder workspace that is the file sync of Coder Desktop
+  (Mutagen): no cloud storage, no network share, nothing to sign in to. The folder is written in one direction only and
+  holds no part of the model the app reads back. Chosen over Google Drive (needs a Google account or service account, and
+  syncing the working folder itself breaks Git and floods the drive with the project environment) and over Samba in the
+  container (port 445 per user, an open share on a machine that runs agents).
+
+## Synced folder (`SOMA_MIRROR_DIR`)
+
+```
+<SOMA_MIRROR_DIR>/<model name>/
+  model.step, drawings.pdf, drawings/…   output/ of the model, after each build or new drawing
+  renders/…                              renders/ of the model (soma render)
+  <model name>.soma                      the model file, after each save
+  versions/<date> <message>/…            the results as they were at each save (off with SOMA_MIRROR_VERSIONS=0)
+  .soma-mirror.json                      which model this is and what SOMA wrote
+```
+
+- A file the user changed there (on their computer, the sync brings the change back) is never overwritten: the new one
+  goes next to it as `<name> (from SOMA).<ext>` and the page says so once. A file the user deleted comes back with the
+  next new result. Nothing in the folder is ever deleted, `versions/` included: it grows with each save.
+- Files are written through a temporary file and renamed, so the sync never picks up half a file.
+- The folder is named after the model. A folder of that name that belongs to another model or to the user is left alone:
+  then the name gets the start of the model's ID. A renamed model starts a new folder, the old one stays.
+- A model opened as a folder ("Open folder") has no saves: only its results are copied.
+- Known limits: two saves within about a second make one version folder; a file changed on the computer in the very
+  moment SOMA replaces it can be lost (the sync tool reports such conflicts itself); names differing only in case
+  collide on Windows and macOS.
+
+### In a Coder workspace
+
+The template sets the variable on the persistent home volume and makes the folder:
+
+```hcl
+resource "coder_agent" "main" {
+  # …
+  env = {
+    SOMA_MIRROR_DIR = "/home/coder/SOMA-files"
+  }
+  startup_script = <<-EOT
+    mkdir -p /home/coder/SOMA-files
+    # … start the SOMA web server as before
+  EOT
+}
+```
+
+Each user, once per workspace: install Coder Desktop, turn on Coder Connect, and under File Sync add a pair of a new
+local folder (e.g. `C:\SOMA`) and `/home/coder/SOMA-files` of the workspace. The sync runs while the workspace runs;
+results made meanwhile arrive on the computer at its next start.
 
 ## Commands
 
@@ -79,12 +129,16 @@ asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same contai
 | `SOMA_WEB_FILES` | home folder | Folder on the server the file dialogs show (open, save, open folder); nothing outside it, links included |
 | `SOMA_USER_DATA` | `~/.soma-web` | App data: models, settings, logs |
 | `SOMA_PYTHON` | `python3` in `PATH` | Python with `soma` and CadQuery (as for the desktop app) |
+| `SOMA_MIRROR_DIR` | off | Synced folder: results of the open model as files for a sync tool (see above) |
+| `SOMA_MIRROR_VERSIONS` | `1` | `0`: no `versions/` folder at each save |
 
 ## Structure
 
 - `server/main.ts`: start, HTTP (`http.ts`: token, cookie, origin check, static files), WebSocket, the command table.
 - `server/tabs.ts`: the connected tab, reconnecting the same page, taking over by another tab.
 - `server/platform.ts`: the host for `app/src/main` (dialogs, clipboard, links, recycle bin, render page).
+- `server/mirror.ts`: the synced folder (`SOMA_MIRROR_DIR`), driven by the messages of the main process to the page
+  (build finished, drawings, changed files, save state) in `server/main.ts`.
 - `server/files.ts`: uploads (`<app data>/uploads/`), the download area (`<app data>/downloads/`: what a request
   writes there goes to the browser, again after each change), download links as copies, the folders for the dialogs.
 - `client/files.ts`: the file dialogs in the page: upload or a file on the server, download or a place on the server.
@@ -93,7 +147,7 @@ asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same contai
 - `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
 - `shared/protocol.ts`: the messages. `shared/files.ts`: the answers of the file dialogs, checked on the server.
 - `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
-- `test/`: unit tests (`unit.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), the page in
-  Chromium (`browser.test.mts`: file dialogs, dropped files, lost connection, second tab, Alt shortcuts, closing), and
+- `test/`: unit tests (`unit.test.mts`, `mirror.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), the page in
+  Chromium (`browser.test.mts`: file dialogs, dropped files, lost connection, second tab, Alt shortcuts, closing, synced folder), and
   `harness-web.mjs`: the suites of the desktop app against the web, `SOMA_TEST_TARGET=web node test/run-all.mjs` in `app/`.
 - `Dockerfile`: the image (one container per user).

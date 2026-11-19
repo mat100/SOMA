@@ -17,6 +17,7 @@ let server: ChildProcess;
 let base: string;
 let userData: string;
 let filesRoot: string;
+let mirrorDir: string;
 let browser: Browser;
 let context: BrowserContext;
 
@@ -33,11 +34,13 @@ const until = async (what: string, fn: () => boolean | Promise<boolean>, ms = 30
 before(async () => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-browser-'));
   filesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-browser-files-'));
+  mirrorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-browser-mirror-'));
   fs.mkdirSync(path.join(filesRoot, 'models'));
   const port = await freePort();
   base = `http://127.0.0.1:${port}/`;
   server = spawn(process.execPath, [path.join(WEB, 'bin', 'soma-web.cjs')], {
-    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_WEB_FILES: filesRoot },
+    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_WEB_FILES: filesRoot,
+      SOMA_MIRROR_DIR: mirrorDir },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -60,6 +63,7 @@ after(async () => {
   server?.kill('SIGKILL');
   fs.rmSync(userData, { recursive: true, force: true });
   fs.rmSync(filesRoot, { recursive: true, force: true });
+  fs.rmSync(mirrorDir, { recursive: true, force: true });
 });
 
 /** A page of SOMA, loaded and listening. */
@@ -263,4 +267,33 @@ test('closing the tab asks only with text not yet saved in the editor', async ()
   await p.keyboard.type('# not saved yet\n');
   await p.close({ runBeforeUnload: true });
   await until('beforeunload dialog', () => asked === 1, 5000);
+});
+
+test('synced folder: a STEP the user changed there stays, the page says where the new one is', async () => {
+  const p = await open();
+  const m = await model(p, true);
+  // Its folder: the name, or the name with the start of the ID when an earlier test took it (mirror.ts)
+  const own = () => fs.readdirSync(mirrorDir).find((n) => {
+    try { return JSON.parse(fs.readFileSync(path.join(mirrorDir, n, '.soma-mirror.json'), 'utf8')).id === m.id; } catch { return false; }
+  });
+  await until('STEP in the synced folder', () => { const n = own(); return !!n && fs.existsSync(path.join(mirrorDir, n, 'model.step')); }, 60_000);
+  const folder = path.join(mirrorDir, own()!);
+  const step = path.join(folder, 'model.step');
+  fs.writeFileSync(step, 'changed on the computer of the user');
+  await p.evaluate(() => window.soma.build.run());
+  await until('copy next to it', () => fs.existsSync(path.join(folder, 'model (from SOMA).step')), 60_000);
+  assert.equal(fs.readFileSync(step, 'utf8'), 'changed on the computer of the user');
+  const note = p.locator('.web-note');
+  await note.waitFor({ timeout: 15_000 });
+  assert.match(await note.textContent() ?? '', /model\.step → model \(from SOMA\)\.step/);
+  await note.getByRole('button', { name: 'Close' }).click();
+  assert.equal(await note.count(), 0);
+  // The same again after the next build (a new STEP next to it): not shown once more
+  const copy = path.join(folder, 'model (from SOMA).step');
+  const before = fs.statSync(copy).mtimeMs;
+  await p.evaluate(() => window.soma.build.run());
+  await until('copy updated', () => fs.statSync(copy).mtimeMs !== before, 60_000);
+  await p.waitForTimeout(500); // the status message after the copy
+  assert.equal(await note.count(), 0);
+  await p.close();
 });

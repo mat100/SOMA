@@ -15,6 +15,7 @@ import { ProjectController } from '../../app/src/main/projects';
 import { createProject, getLastProject } from '../../app/src/main/workspace';
 import { SOMA_VERSION } from '../../app/src/shared/version';
 import { Files, listDir } from './files';
+import { Mirror, type MirrorModel, type MirrorSave } from './mirror';
 import { authorized, handleLogin, sameOrigin, serveStatic, type AuthMode } from './http';
 import { webPlatform } from './platform';
 import { RenderFrames } from './render';
@@ -45,6 +46,8 @@ const basePath = (env.SOMA_WEB_BASE ?? '/').replace(/\/*$/, '/');
 const stripBase = (pathname: string) => (basePath !== '/' && pathname.startsWith(basePath) ? pathname.slice(basePath.length - 1) : pathname);
 /** Further origins allowed for the WebSocket (comma separated), for proxies that change the host. */
 const origins = (env.SOMA_WEB_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+/** The synced folder (mirror.ts): results of the open model as files for a sync tool. Off without the variable. */
+const mirrorDir = env.SOMA_MIRROR_DIR?.trim() ? path.resolve(env.SOMA_MIRROR_DIR.trim()) : null;
 
 function authMode(): AuthMode {
   if (env.SOMA_WEB_AUTH === 'proxy') {
@@ -121,7 +124,8 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
 
 const files = new Files(userData, (url, name) => tabs.request('web:download', [url, name]));
 const renderFrames = new RenderFrames(tabs);
-setPlatform(webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files, renderFrames));
+const platformHost = webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files, renderFrames);
+setPlatform(mirrorDir ? withMirror(platformHost, mirrorDir) : platformHost);
 // As Electron's main process: an error nobody caught is in the log (log.ts writes it), the server keeps running
 process.on('uncaughtException', () => {});
 // The main process reads SOMA_USER_DATA (paths.ts); the same folder for everything, terminals included
@@ -131,6 +135,59 @@ initLog(logsDir(), {
   version: SOMA_VERSION, system: `${osName()} ${process.arch}`, web: `Node.js ${process.versions.node}`,
   python: pythonExe(), appData: userDataDir(),
 });
+
+// ---- Synced folder (mirror.ts) --------------------------------------------------------------------------------------------
+
+/**
+ * Follows what the main process tells the page: a finished build, new drawings, changed files (renders), a save. Each of
+ * them brings the folder of the open model up to date, a moment later so a burst of messages makes one sync.
+ */
+function withMirror(host: ReturnType<typeof webPlatform>, root: string): ReturnType<typeof webPlatform> {
+  const mirror = new Mirror(root, {
+    versions: env.SOMA_MIRROR_VERSIONS !== '0',
+    onStatus: (s) => tabs.emit('web:mirror', [s]),
+  });
+  handlers.set('web:mirrorStatus', () => mirror.status());
+  /** The open model as the page was told last (project:changed), and what waits to be synced for it. */
+  let model: MirrorModel | null = null;
+  let save: MirrorSave | undefined;
+  let timer: NodeJS.Timeout | null = null;
+  const flush = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (model) {
+      // The name as it is now: saving under a new file name renames the model without telling the page
+      try { if (ctl?.session?.id === model.id) model = { ...model, name: ctl.info().name }; } catch { /* the last one known */ }
+      void mirror.sync(model, save);
+    }
+    save = undefined;
+  };
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(flush, 1000);
+  };
+  console.log(`[web] synced folder: ${root}`);
+  return {
+    ...host,
+    send(channel, ...args) {
+      host.send(channel, ...args);
+      const a = args[0] as Record<string, unknown> | undefined;
+      if (channel === 'project:changed') {
+        const next = a && typeof a.id === 'string' && typeof a.name === 'string' && typeof a.dir === 'string' ? { id: a.id, name: a.name, dir: a.dir } : null;
+        // Another model: what waits for the previous one (a save just before) is synced for it now
+        if (model && next?.id !== model.id && timer) flush();
+        model = next;
+        schedule();
+      } else if (channel === 'build:status') {
+        if (a?.state === 'ok') schedule();
+      } else if (channel === 'save:state') {
+        save = { head: typeof a?.savedHead === 'string' ? a.savedHead : null, zipPath: typeof a?.zipPath === 'string' ? a.zipPath : null };
+        schedule();
+      } else if (channel === 'drawings:changed' || channel === 'fs:changed') {
+        schedule();
+      }
+    },
+  };
+}
 
 // ---- Questions in the page (dialogs.ts), as hostDialogs in main.ts of the desktop ---------------------------------------
 

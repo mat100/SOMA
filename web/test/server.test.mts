@@ -19,6 +19,7 @@ let base: string;
 let cookie: string;
 let userData: string;
 let filesRoot: string;
+let mirrorDir: string;
 
 const freePort = () => new Promise<number>((resolve) => {
   const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => resolve(p)); });
@@ -27,6 +28,7 @@ const freePort = () => new Promise<number>((resolve) => {
 before(async () => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-test-'));
   filesRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-files-'));
+  mirrorDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-mirror-')), 'SOMA-files');
   fs.mkdirSync(path.join(filesRoot, 'models'));
   fs.writeFileSync(path.join(filesRoot, 'models', 'a.step'), 'x');
   fs.symlinkSync('/etc', path.join(filesRoot, 'models', 'out'));
@@ -34,7 +36,8 @@ before(async () => {
   base = `http://127.0.0.1:${port}/`;
   server = spawn(process.execPath, [path.join(WEB, 'bin', 'soma-web.cjs')], {
     // Not in test mode: dialogs go to the page as for a user, not to prepared answers (dialogs.ts)
-    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_WEB_FILES: filesRoot },
+    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, SOMA_USER_DATA: userData, SOMA_WEB_FILES: filesRoot,
+      SOMA_MIRROR_DIR: mirrorDir },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -51,6 +54,7 @@ after(() => {
   server?.kill('SIGTERM');
   fs.rmSync(userData, { recursive: true, force: true });
   fs.rmSync(filesRoot, { recursive: true, force: true });
+  fs.rmSync(path.dirname(mirrorDir), { recursive: true, force: true });
 });
 
 /** A tab: the WebSocket after hello, with a queue of the messages from the server. */
@@ -262,6 +266,25 @@ test('save with "Download": the model comes to the browser, saving again downloa
   a.ws.send(encode({ t: 'reply', id: dl2.id, ok: true }));
   assert.equal((await again as { error?: string }).error, undefined);
   assert.equal(dl2.args[1], 'Box.soma');
+  a.ws.close();
+});
+
+test('synced folder (SOMA_MIRROR_DIR): the STEP of a build and the saved model as files', async () => {
+  const a = await tab('page-mirror');
+  await a.next((m) => m.t === 'welcome');
+  // The model saved by the test before (Box.soma); a build gives its STEP
+  await a.invoke('build:run');
+  const folder = path.join(mirrorDir, 'Box');
+  const t0 = Date.now();
+  while (!(fs.existsSync(path.join(folder, 'model.step')) && fs.existsSync(path.join(folder, 'Box.soma')))) {
+    if (Date.now() - t0 > 90_000) assert.fail(`Nothing in the synced folder: ${fs.existsSync(mirrorDir) ? fs.readdirSync(mirrorDir, { recursive: true }).join(', ') : 'no folder'}`);
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  assert.match(fs.readFileSync(path.join(folder, 'model.step'), 'utf8').slice(0, 20), /ISO-10303-21/);
+  assert.deepEqual([...fs.readFileSync(path.join(folder, 'Box.soma')).subarray(0, 2)], [0x50, 0x4b]);
+  const status = await a.invoke('web:mirrorStatus') as { state: string; folder: string };
+  assert.equal(status.state, 'ok');
+  assert.equal(status.folder, folder);
   a.ws.close();
 });
 

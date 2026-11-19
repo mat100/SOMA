@@ -2,7 +2,7 @@ import { createSomaApi } from '../../app/src/shared/api';
 import { closeDialogs, fileRequests } from './files';
 import { removeRenderFrames, renderFrames } from './renderframe';
 import { WsTransport } from './transport';
-import { showOffline, showStopped, webRequests } from './webui';
+import { mirrorNotes, showOffline, showStopped, webRequests } from './webui';
 
 /*
  * SOMA in the browser: window.soma on the WebSocket instead of Electron's preload, then the renderer of the desktop app
@@ -23,6 +23,7 @@ void (async () => {
   const env = await t.connect();
   window.soma = createSomaApi(t, { ...env, platform: 'web' });
   webRequests(t);
+  mirrorNotes(t);
   fileRequests(t);
   renderFrames(t);
   // Only now: the renderer reads window.soma when it loads

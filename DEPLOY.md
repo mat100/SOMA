@@ -39,6 +39,7 @@ One branch per worktree, the name of the branch does not change while it has one
 | `~/SOMA` | `platform-interface` |
 | `~/SOMA-folder` | `web-synced-folder` |
 | `~/SOMA-buildinfo` | `web-build-info` |
+| `~/SOMA-signin` | `web-somaai-signin` |
 | `~/SOMA-mirror` | `backup/web-mirror-old` (old, nothing new here) |
 
 ## Branches in it
@@ -59,6 +60,7 @@ Ours only, never a pull request:
 | `somaai-claude-subscription` | `web` | SOMA AI: sign-in with a Claude Pro/Max plan; may use the temp folder and read system files without asking |
 | `web-synced-folder` | `web` | Synced folder (`SOMA_MIRROR_DIR`, Coder Desktop file sync): results of each model, and the folder as the models' home |
 | `web-build-info` | `web` | Which commit the server runs: start page next to the version, `GET /health`, log |
+| `web-somaai-signin` | `deploy` | SOMA AI in the web version: Claude sign-in by Anthropic's copy-code login (`Platform.remoteBrowser`) |
 
 Old, kept until the pull requests are merged (their content is in the branches above, rebased): `web-version`,
 `web-mirror` (now part of `web-synced-folder`), `backup/*`.
@@ -76,3 +78,4 @@ rows at the end, old rows are not rewritten.
 | D4 | 2026-11-19 | A model's folder is renamed only when everything in it is SOMA's (manifest files unchanged, `versions/`, the manifest); otherwise a new folder and one notice | Never move or delete what the user put there |
 | D5 | 2026-11-19 | `GET /health` answers without the token with version and commit | The code is public (GPL); a check after a deployment needs no secret |
 | D6 | 2026-11-19 | At the end of every piece of work the branch and `deploy` are pushed to the fork without asking; force pushes and pull requests only with the user's consent | The user wants the installation to follow without a separate step |
+| D7 | 2026-11-19 | In the web version Claude (Pro/Max) signs in by pi's copy-code login: the user pastes `code#state` from platform.claude.com; the desktop keeps the browser login | claude.ai cannot send the browser back to the server's localhost (the page only spins); the copy-code page is what Claude Code uses without a local browser |

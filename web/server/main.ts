@@ -253,6 +253,8 @@ function registerAll(c: ProjectController): void {
   handlers.set('gpu:webglFailed', () => false);
   // Tests: like closing the window of the desktop app, which quits it (the open model is left, E69)
   if (testMode) handlers.set('test:close', () => { void shutdown(); });
+  // Tests: the size of the page, set by the test harness through the tab (web/test/harness-web.mjs)
+  if (testMode) handlers.set('test:size', (w: unknown, h: unknown) => tabs.request('web:testSize', [Number(w), Number(h)]));
   // The file dialogs of the page (web/client/files.ts) browse the server below filesRoot
   handlers.set('web:listDir', (dir: unknown) => listDir(filesRoot, dir));
 }

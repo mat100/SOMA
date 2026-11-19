@@ -77,6 +77,12 @@ export function webRequests(t: WsTransport): void {
     if (!w) throw new Error(`The browser blocked the new window. Allow pop-ups for SOMA or open the address yourself: ${u}`);
     w.opener = null;
   });
+  // Only under the test harness (web/test/harness-web.mjs), which resizes the page
+  t.onRequest('web:testSize', async (w: unknown, h: unknown) => {
+    const resize = (window as unknown as { __somaTestSize?: (w: number, h: number) => Promise<void> }).__somaTestSize;
+    if (!resize) throw new Error('The page can be resized only by the test harness.');
+    await resize(Number(w), Number(h));
+  });
   t.onRequest('web:clipboard', async (text: unknown) => {
     if (!navigator.clipboard) throw new Error('The browser allows the clipboard only on https or localhost.');
     await navigator.clipboard.writeText(String(text));

@@ -28,7 +28,10 @@ await Promise.all([
   // Server: node-pty and dugite stay outside as on the desktop (dugite finds its Git relative to its package), they are
   // app/'s packages (bin/soma-web.cjs). ws comes into the bundle, its optional native helpers not.
   build({ ...common, entryPoints: [at('server', 'main.ts')], outfile: at('dist', 'server.js'), platform: 'node', format: 'cjs',
-          external: ['node-pty', 'dugite', 'bufferutil', 'utf-8-validate'] }),
+          external: ['node-pty', 'dugite', 'bufferutil', 'utf-8-validate', 'sherpa-onnx-node'] }),
+  // Speech recognition for voice input (voice.ts forks it next to server.js); sherpa-onnx is app/'s package
+  build({ ...common, entryPoints: [path.resolve(at('..'), 'app', 'src', 'main', 'voiceworker.ts')], outfile: at('dist', 'voiceworker.js'),
+          platform: 'node', format: 'cjs', external: ['sherpa-onnx-node'] }),
   // The page: window.soma on the WebSocket, then the renderer of the desktop app
   build({ ...common, ...page, entryPoints: [at('client', 'main.ts')], outfile: path.join(pub, 'main.js'), platform: 'browser', format: 'iife' }),
   // The render page (hidden frame for soma render): window.somaRender on the WebSocket, then the render code of app/

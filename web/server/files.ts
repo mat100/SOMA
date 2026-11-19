@@ -106,6 +106,9 @@ export class Files {
     return map(value) as T;
   }
 
+  /** Is `abs` a place in the download area (stage)? */
+  staged(abs: string): boolean { return path.resolve(abs).startsWith(this.downloads + path.sep); }
+
   /** A place for something the browser will download: `name` in a folder of its own. */
   stage(name: string): string {
     const dir = path.join(this.downloads, randomBytes(8).toString('hex'));
@@ -240,6 +243,25 @@ function listFiles(dir: string, rel = ''): string[] {
     else if (e.isFile() && !/\.(part|tmp)$/i.test(e.name)) out.push(r);
   }
   return out;
+}
+
+/**
+ * A new folder `name` in `parent` for the dialogs ("New folder"), only below `root`, with the same checks as listDir: the
+ * parent after following links must be below the root, the name a plain name. Never replaces anything. The new folder.
+ */
+export function makeDir(root: string, parent: unknown, name: unknown): string {
+  if (typeof parent !== 'string' || typeof name !== 'string') throw new Error('No folder given.');
+  const n = name.trim();
+  if (!nameOk(n) || n !== safeName(n) || n.startsWith('.')) throw new Error(`"${n}" cannot be a folder name.`);
+  const dir = path.resolve(parent);
+  if (!insideRoot(root, dir) || !fs.lstatSync(dir).isDirectory()) throw new Error('Folders can only be made in the folder SOMA shows.');
+  const abs = path.join(dir, n);
+  if (!insideRoot(root, abs)) throw new Error('Folders can only be made in the folder SOMA shows.');
+  try { fs.mkdirSync(abs); } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`"${n}" is there already.`);
+    throw e;
+  }
+  return abs;
 }
 
 /** A folder on the server for the dialogs, only below `root` (the user's home). Outside: the root itself. */

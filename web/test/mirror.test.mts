@@ -259,3 +259,178 @@ test('too many files: the first ones are copied, the rest is reported', async ()
   assert.equal(fs.readdirSync(path.join(s.root, 'Bracket', 'renders')).length, 2000);
   assert.match(s.statuses.at(-1)?.error ?? '', /More than 2000 files in renders/);
 });
+
+// ---- The synced folder as the models' home (home, claim; web/server/main.ts saves into the folder) ------------------
+
+function home() {
+  const s = setup();
+  const mirror = new Mirror(s.root, { versions: true, home: true, onStatus: (st) => s.statuses.push(st) });
+  const manifest = (folder: string) => JSON.parse(fs.readFileSync(path.join(s.root, folder, '.soma-mirror.json'), 'utf8'));
+  return { ...s, mirror, manifest };
+}
+
+test('home: saved right in the model folder, the file is noted as SOMA\'s and never copied onto itself', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  const folder = await s.mirror.claim(s.model);
+  assert.equal(folder, path.join(s.root, 'Bracket'));
+  const zip = path.join(folder, 'Bracket.soma');
+  assert.equal(await s.mirror.mayWrite(folder, 'Bracket.soma'), true, 'nothing there yet');
+  fs.writeFileSync(zip, 'zip 1');
+  await s.mirror.sync(s.model, { head: null, zipPath: zip });
+  assert.equal(s.read('Bracket.soma'), 'zip 1');
+  assert.deepEqual(fs.readdirSync(folder).filter((n) => n.startsWith('.soma-mirror-tmp')), []);
+  const rec = s.manifest('Bracket').files['Bracket.soma'];
+  assert.equal(rec.srcSize, 5);
+  assert.equal(rec.srcMtime, fs.statSync(zip).mtimeMs, 'the file itself, not a copy');
+  // Saved again: still SOMA's file, so the next save may write it
+  fs.writeFileSync(zip, 'zip 2, longer');
+  await s.mirror.sync(s.model, { head: null, zipPath: zip });
+  assert.equal(s.manifest('Bracket').files['Bracket.soma'].srcSize, 13);
+  assert.equal(await s.mirror.mayWrite(folder, 'Bracket.soma'), true);
+  assert.equal(s.statuses.at(-1)?.state, 'ok');
+  assert.deepEqual(s.statuses.at(-1)?.kept, []);
+  // Changed by the user: not SOMA's any more
+  fs.writeFileSync(zip, 'the user');
+  assert.equal(await s.mirror.mayWrite(folder, 'Bracket.soma'), false);
+});
+
+test('home: a model file elsewhere in the synced folder is not copied a second time', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  fs.mkdirSync(s.root, { recursive: true });
+  const zip = path.join(s.root, 'Bracket.soma');
+  fs.writeFileSync(zip, 'zip');
+  await s.mirror.sync(s.model, { head: null, zipPath: zip });
+  assert.equal(s.read('model.step'), 'step');
+  assert.equal(s.has('Bracket.soma'), false);
+});
+
+test('home: a folder of the user holding the opened model file becomes its folder, nothing of the user\'s is replaced', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  const mine = path.join(s.root, 'Bracket');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'Bracket.soma'), 'zip of the user');
+  fs.writeFileSync(path.join(mine, 'model.step'), 'step of the user');
+  await s.mirror.sync({ ...s.model, file: path.join(mine, 'Bracket.soma') });
+  assert.equal(s.read('model.step'), 'step of the user');
+  assert.equal(s.read('model (from SOMA).step'), 'step');
+  assert.equal(s.manifest('Bracket').id, ID);
+});
+
+test('home: names taken are offered with a number, never the ID', async () => {
+  const s = home();
+  fs.mkdirSync(path.join(s.root, 'Bracket'), { recursive: true });
+  fs.writeFileSync(path.join(s.root, 'Bracket', 'notes.txt'), 'the user');
+  assert.deepEqual(s.mirror.suggestName(' Bracket '), { name: 'Bracket', free: 'Bracket (2)' });
+  assert.deepEqual(s.mirror.suggestName('a/b:c'), { name: 'a_b_c', free: 'a_b_c' });
+  assert.deepEqual(s.mirror.suggestName('  '), { name: '', free: '' });
+  // An empty folder of the user is free
+  fs.mkdirSync(path.join(s.root, 'Empty'));
+  assert.equal(s.mirror.suggestName('Empty').free, 'Empty');
+  // A model that gets the name anyway (the tutorial, a CadQuery script): the next number
+  s.put('output/model.step', 'step');
+  await s.mirror.sync(s.model);
+  assert.equal(fs.readFileSync(path.join(s.root, 'Bracket (2)', 'model.step'), 'utf8'), 'step');
+  assert.equal(s.mirror.suggestName('Bracket').free, 'Bracket (3)');
+  // Its own folder is free for the model itself (Save as under the same name)
+  assert.equal(s.mirror.suggestName('Bracket', ID).free, 'Bracket (2)');
+});
+
+test('home: a renamed model takes its folder along when everything there is SOMA\'s', async () => {
+  const s = home();
+  execFileSync('git', ['init', '-q', s.dir]);
+  execFileSync('git', ['-C', s.dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'First']);
+  const head = () => execFileSync('git', ['-C', s.dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  s.put('output/model.step', 'step');
+  s.put('renders/front.png', 'png');
+  const old = await s.mirror.claim(s.model);
+  fs.writeFileSync(path.join(old, 'Bracket.soma'), 'zip 1');
+  await s.mirror.sync(s.model, { head: head(), zipPath: path.join(old, 'Bracket.soma') });
+  execFileSync('git', ['-C', s.dir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'Second']);
+  fs.writeFileSync(path.join(old, 'Bracket.soma'), 'zip 2');
+  await s.mirror.sync(s.model, { head: head(), zipPath: path.join(old, 'Bracket.soma') });
+  assert.equal(fs.readdirSync(path.join(old, 'versions')).length, 1);
+  // Save as "Holder": the folder moves, the model file too (saved under the new name right after)
+  const moved = await s.mirror.claim({ ...s.model, name: 'Holder' }, { moveFile: true });
+  assert.equal(moved, path.join(s.root, 'Holder'));
+  assert.equal(fs.existsSync(old), false);
+  assert.deepEqual(fs.readdirSync(moved).sort(), ['.soma-mirror.json', 'Holder.soma', 'model.step', 'renders', 'versions']);
+  assert.equal(fs.readFileSync(path.join(moved, 'Holder.soma'), 'utf8'), 'zip 2');
+  assert.equal(s.manifest('Holder').name, 'Holder');
+  assert.equal(s.manifest('Holder').folder, 'Holder');
+  assert.equal(await s.mirror.mayWrite(moved, 'Holder.soma'), true);
+  // Syncs go on in the new folder, nothing comes back under the old name
+  s.put('output/model.step', 'step 2');
+  await s.mirror.sync({ ...s.model, name: 'Holder' });
+  assert.equal(fs.readFileSync(path.join(moved, 'model.step'), 'utf8'), 'step 2');
+  assert.equal(fs.existsSync(old), false);
+  assert.equal(s.statuses.at(-1)?.notice, undefined);
+});
+
+test('home: a sync still waiting with the old name does not move the folder back', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  await s.mirror.claim(s.model);
+  await s.mirror.sync(s.model);
+  // A sync asked for before the rename, and the rename, at the same time
+  const runs = [s.mirror.sync(s.model), s.mirror.sync(s.model), s.mirror.claim({ ...s.model, name: 'Holder' })];
+  await Promise.all(runs);
+  assert.deepEqual(fs.readdirSync(s.root), ['Holder']);
+});
+
+test('home: a renamed model leaves a folder with a file of the user as it is, a new folder, and says so once', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  await s.mirror.sync(s.model);
+  fs.writeFileSync(path.join(s.root, 'Bracket', 'notes.txt'), 'the user');
+  const renamed = { ...s.model, name: 'Holder' };
+  await s.mirror.sync(renamed);
+  assert.equal(fs.readFileSync(path.join(s.root, 'Bracket', 'notes.txt'), 'utf8'), 'the user');
+  assert.equal(fs.readFileSync(path.join(s.root, 'Bracket', 'model.step'), 'utf8'), 'step');
+  assert.equal(fs.readFileSync(path.join(s.root, 'Holder', 'model.step'), 'utf8'), 'step');
+  assert.match(s.statuses.at(-1)?.notice ?? '', /"Bracket" stays as it is: it has files that are not SOMA's.*"Holder"/);
+  await s.mirror.sync(renamed);
+  assert.equal(s.statuses.at(-1)?.notice, undefined, 'said once');
+  // A STEP changed by the user counts the same
+  const t = home();
+  t.put('output/model.step', 'step');
+  await t.mirror.sync(t.model);
+  fs.writeFileSync(path.join(t.root, 'Bracket', 'model.step'), 'changed');
+  await t.mirror.sync({ ...t.model, name: 'Holder' });
+  assert.equal(fs.existsSync(path.join(t.root, 'Bracket', 'model.step')), true);
+  assert.equal(fs.existsSync(path.join(t.root, 'Holder', 'model.step')), true);
+});
+
+test('home: a folder with a manifest SOMA cannot read is never taken, nor a link in place of the root', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  const mine = path.join(s.root, 'Bracket');
+  fs.mkdirSync(mine, { recursive: true });
+  fs.writeFileSync(path.join(mine, 'Bracket.soma'), 'zip of the user');
+  fs.writeFileSync(path.join(mine, '.soma-mirror.json'), '{ broken');
+  await s.mirror.sync({ ...s.model, file: path.join(mine, 'Bracket.soma') });
+  assert.equal(fs.readFileSync(path.join(mine, '.soma-mirror.json'), 'utf8'), '{ broken');
+  assert.equal(fs.readFileSync(path.join(s.root, 'Bracket (2)', 'model.step'), 'utf8'), 'step');
+  assert.equal(s.mirror.suggestName('Bracket').free, 'Bracket (3)');
+  const t = home();
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-mirror-out-'));
+  fs.symlinkSync(elsewhere, t.root);
+  t.put('output/model.step', 'step');
+  await t.mirror.sync(t.model);
+  assert.equal(t.statuses.at(-1)?.state, 'error');
+  assert.deepEqual(fs.readdirSync(elsewhere), []);
+});
+
+test('home: a folder the user renamed or copied is not moved back', async () => {
+  const s = home();
+  s.put('output/model.step', 'step');
+  await s.mirror.sync(s.model);
+  fs.renameSync(path.join(s.root, 'Bracket'), path.join(s.root, 'Bracket old'));
+  await s.mirror.sync(s.model);
+  assert.deepEqual(fs.readdirSync(s.root).sort(), ['Bracket', 'Bracket old']);
+  // Renamed model: "Bracket" moves along, "Bracket old" (named by the user) stays
+  await s.mirror.sync({ ...s.model, name: 'Holder' });
+  assert.deepEqual(fs.readdirSync(s.root).sort(), ['Bracket old', 'Holder']);
+});

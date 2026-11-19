@@ -20,6 +20,8 @@ let filesRoot: string;
 let mirrorDir: string;
 let browser: Browser;
 let context: BrowserContext;
+/** A second server whose synced folder is also the folder of the dialogs: the models' home (server/main.ts modelHome). */
+const home = { server: null as ChildProcess | null, base: '', userData: '', root: '', context: null as BrowserContext | null };
 
 const freePort = () => new Promise<number>((resolve) => {
   const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => resolve(p)); });
@@ -30,6 +32,23 @@ const until = async (what: string, fn: () => boolean | Promise<boolean>, ms = 30
     if (Date.now() - t0 > ms) throw new Error(`Timeout: ${what}`);
   }
 };
+
+/** Starts a server, resolves once it listens. */
+async function startServer(env: Record<string, string>): Promise<{ proc: ChildProcess; base: string }> {
+  const port = await freePort();
+  const proc = spawn(process.execPath, [path.join(WEB, 'bin', 'soma-web.cjs')], {
+    env: { ...process.env, SOMA_TEST: undefined, SOMA_WEB_PORT: String(port), SOMA_WEB_TOKEN: TOKEN, ...env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Server did not start: ${log}`)), 30_000);
+    const on = (d: Buffer) => { log += d; if (log.includes('[web] SOMA')) { clearTimeout(timer); resolve(); } };
+    proc.stdout!.on('data', on);
+    proc.stderr!.on('data', on);
+  });
+  return { proc, base: `http://127.0.0.1:${port}/` };
+}
 
 before(async () => {
   userData = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-browser-'));
@@ -61,6 +80,8 @@ before(async () => {
 after(async () => {
   await browser?.close();
   server?.kill('SIGKILL');
+  home.server?.kill('SIGKILL');
+  for (const d of [home.userData, home.root]) if (d) fs.rmSync(d, { recursive: true, force: true });
   fs.rmSync(userData, { recursive: true, force: true });
   fs.rmSync(filesRoot, { recursive: true, force: true });
   fs.rmSync(mirrorDir, { recursive: true, force: true });
@@ -295,5 +316,124 @@ test('synced folder: a STEP the user changed there stays, the page says where th
   await until('copy updated', () => fs.statSync(copy).mtimeMs !== before, 60_000);
   await p.waitForTimeout(500); // the status message after the copy
   assert.equal(await note.count(), 0);
+  await p.close();
+});
+
+// ---- The synced folder as the models' home (SOMA_WEB_FILES = SOMA_MIRROR_DIR, as in a Coder workspace) ----------------
+
+/** A page of the second server, its own browser context (the login cookie does not tell ports apart). */
+async function openHome(): Promise<Page> {
+  if (!home.server) {
+    home.userData = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-home-'));
+    home.root = fs.mkdtempSync(path.join(os.tmpdir(), 'soma-web-home-files-'));
+    const s = await startServer({ SOMA_USER_DATA: home.userData, SOMA_WEB_FILES: home.root, SOMA_MIRROR_DIR: home.root });
+    home.server = s.proc;
+    home.base = s.base;
+    home.context = await browser.newContext({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
+    const login = await home.context.newPage();
+    await login.goto(`${home.base}?token=${TOKEN}`);
+    await login.close();
+  }
+  const p = await home.context!.newPage();
+  await p.goto(home.base);
+  await p.waitForFunction(() => !!window.soma && !document.getElementById('boot'));
+  return p;
+}
+
+const built = (p: Page) => p.waitForFunction(() => document.getElementById('status')!.textContent === 'Built' && document.getElementById('start')!.hidden, null, { timeout: 120_000 });
+const current = (p: Page) => p.evaluate(() => window.soma.project.current().catch(() => null)) as Promise<{ id: string; name: string } | null>;
+const manifest = (folder: string) => JSON.parse(fs.readFileSync(path.join(home.root, folder, '.soma-mirror.json'), 'utf8')) as { id: string; files: Record<string, unknown> };
+
+test('models\' home: New model asks for the name first, its folder is there at once; a name taken is offered with a number', async () => {
+  const p = await openHome();
+  // Canceled: nothing created, the start page stays
+  await p.locator('#start-new:visible, #start-empty-new:visible').first().click();
+  await dialog(p).getByRole('textbox', { name: 'Name' }).waitFor();
+  await p.keyboard.press('Escape');
+  await dialog(p).waitFor({ state: 'detached' });
+  assert.equal(await current(p), null);
+  assert.equal(await p.locator('#app-busy').isHidden(), true, 'no loading screen');
+  assert.equal(await p.locator('#start').isVisible(), true);
+  // A folder of the user's of that name: the next free name is offered
+  fs.mkdirSync(path.join(home.root, 'Test'));
+  fs.writeFileSync(path.join(home.root, 'Test', 'notes.txt'), 'the user');
+  await p.locator('#start-new:visible, #start-empty-new:visible').first().click();
+  const name = dialog(p).getByRole('textbox', { name: 'Name' });
+  await name.fill('Test');
+  await name.press('Enter');
+  await dialog(p).getByText('There is a folder "Test" already').waitFor();
+  assert.equal(await name.inputValue(), 'Test (2)');
+  await name.fill('Bracket');
+  await name.press('Enter');
+  await until('model "Bracket"', async () => (await current(p))?.name === 'Bracket', 60_000);
+  const m = (await current(p))!;
+  await until('its folder', () => fs.existsSync(path.join(home.root, 'Bracket', '.soma-mirror.json')), 10_000);
+  assert.equal(manifest('Bracket').id, m.id);
+  assert.equal(fs.readFileSync(path.join(home.root, 'Test', 'notes.txt'), 'utf8'), 'the user');
+  await built(p);
+  await p.close();
+});
+
+test('models\' home: Ctrl+S saves into the model folder without a dialog, nothing in the root', async () => {
+  const p = await openHome();
+  await built(p);
+  assert.equal((await current(p))?.name, 'Bracket');
+  await p.locator('#viewer').click({ position: { x: 5, y: 5 } }).catch(() => {});
+  await p.keyboard.press('Control+s');
+  const file = path.join(home.root, 'Bracket', 'Bracket.soma');
+  await until('Bracket.soma in its folder', () => fs.existsSync(file), 60_000);
+  assert.equal(await dialog(p).count(), 0, 'no dialog');
+  assert.deepEqual(fs.readdirSync(home.root).filter((n) => !fs.statSync(path.join(home.root, n)).isDirectory()), [], 'no file in the root');
+  // Noted as SOMA's, not copied onto itself
+  await until('noted in the manifest', () => !!manifest('Bracket').files['Bracket.soma'], 10_000);
+  const st = await p.evaluate(() => window.soma.project.saveState()) as { zipPath: string; unsaved: boolean };
+  assert.equal(st.zipPath, file);
+  assert.equal(st.unsaved, false);
+  // Download is an action of its own
+  const dl = p.waitForEvent('download');
+  await p.evaluate(() => document.getElementById('btn-web-download')!.click());
+  assert.equal((await dl).suggestedFilename(), 'Bracket.soma');
+  await p.close();
+});
+
+test('models\' home: Save as under a new name moves the folder (all of it is SOMA\'s) and saves there', async () => {
+  const p = await openHome();
+  await built(p);
+  const saving = p.evaluate(() => window.soma.project.save(true));
+  const name = dialog(p).getByRole('textbox', { name: 'Model name' });
+  await name.waitFor();
+  assert.equal(await name.inputValue(), 'Bracket');
+  await name.fill('Holder');
+  await name.press('Enter');
+  const r = await saving as { cancelled: boolean; error?: string; zipPath?: string };
+  assert.equal(r.error, undefined);
+  assert.equal(r.zipPath, path.join(home.root, 'Holder', 'Holder.soma'));
+  assert.equal(fs.existsSync(path.join(home.root, 'Bracket')), false, 'moved, not copied');
+  assert.deepEqual(fs.readdirSync(path.join(home.root, 'Holder')).filter((n) => n.endsWith('.soma')), ['Holder.soma']);
+  assert.equal((await current(p))?.name, 'Holder');
+  await p.close();
+});
+
+test('models\' home: Open starts in the synced folder, the folder browser makes new folders', async () => {
+  const p = await openHome();
+  await built(p);
+  const opening = p.evaluate(() => window.soma.project.openZip());
+  await p.locator('.web-where').getByText(home.root, { exact: true }).waitFor();
+  await dialog(p).getByRole('button', { name: 'Holder' }).waitFor();
+  await button(p, '.web-files', 'New folder').click();
+  const name = p.locator('.web-files').last().getByRole('textbox', { name: 'Name' });
+  await name.fill('Inbox');
+  await name.press('Enter');
+  await p.locator('.web-where').getByText(path.join(home.root, 'Inbox'), { exact: true }).waitFor();
+  assert.equal(fs.statSync(path.join(home.root, 'Inbox')).isDirectory(), true);
+  // Names that would lead out are refused
+  await button(p, '.web-files', 'New folder').click();
+  await name.fill('../out');
+  await name.press('Enter');
+  await p.locator('.web-files').last().getByText('cannot be a folder name').waitFor();
+  await p.keyboard.press('Escape');
+  await button(p, '.web-files', 'Cancel').click();
+  assert.equal((await opening as { cancelled: boolean }).cancelled, true);
+  assert.equal(fs.existsSync(path.join(home.root, 'out')), false);
   await p.close();
 });

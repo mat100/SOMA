@@ -17,8 +17,14 @@ export type ClientMessage =
   /** Answer to a `request` of the server. */
   | { t: 'reply'; id: number; ok: boolean; value?: unknown; error?: string };
 
+/**
+ * What the page learns about the server when it connects. `modelHome`: the synced folder is the models' home (a new model
+ * asks for its name first, saving goes to its folder, see web/server/main.ts).
+ */
+export interface WelcomeEnv { testMode: boolean; startsHome: boolean; modelHome?: boolean }
+
 export type ServerMessage =
-  | { t: 'welcome'; env: { testMode: boolean; startsHome: boolean }; resumed: boolean }
+  | { t: 'welcome'; env: WelcomeEnv; resumed: boolean }
   | { t: 'result'; id: number; ok: true; value: unknown }
   | { t: 'result'; id: number; ok: false; error: string }
   | { t: 'event'; ch: string; args: unknown[] }

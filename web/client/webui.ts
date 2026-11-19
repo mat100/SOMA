@@ -89,13 +89,16 @@ export function webRequests(t: WsTransport): void {
   });
 }
 
-interface MirrorStatus { folder: string | null; state: 'ok' | 'error'; error?: string; kept: { file: string; copy: string; updated: boolean }[] }
+interface MirrorStatus { folder: string | null; state: 'ok' | 'error'; error?: string; kept: { file: string; copy: string; updated: boolean }[]; notice?: string }
 
 let note: HTMLElement | null = null;
+/** What the note shows: only a note about changed files goes by itself once they are gone. */
+let noteKind: 'error' | 'kept' | 'notice' = 'kept';
 /** What was shown last: the same problem is not shown again after each build. */
 let shown = '';
-function showNote(title: string, text: string): void {
+function showNote(title: string, text: string, kind: typeof noteKind): void {
   style();
+  noteKind = kind;
   note?.remove();
   note = document.createElement('div');
   note.className = 'web-note';
@@ -120,14 +123,16 @@ function showNote(title: string, text: string): void {
 export function mirrorNotes(t: WsTransport): void {
   t.on('web:mirror', (s: unknown) => {
     const st = s as MirrorStatus;
+    // Said once (a renamed model whose old folder stays): not part of what is remembered as shown
+    if (st.notice) showNote('Synced folder', st.notice, 'notice');
     if (st.state === 'error') {
       const key = `error:${st.error ?? ''}`;
-      if (key !== shown) showNote('Synced folder not updated', st.error ?? 'Unknown error.');
+      if (key !== shown) showNote('Synced folder not updated', st.error ?? 'Unknown error.', 'error');
       shown = key;
       return;
     }
     // Nothing to say any more (the folder is writable again, the changed files are gone): the note goes
-    if (!st.kept.length) { note?.remove(); note = null; }
+    if (!st.kept.length && noteKind !== 'notice') { note?.remove(); note = null; }
     const key = st.kept.length ? `${st.folder ?? ''}\n${st.kept.map((k) => `${k.file}:${k.updated}`).sort().join('\n')}` : '';
     if (key && key !== shown) {
       const next = st.kept.filter((k) => k.updated).map((k) => `${k.file} → ${k.copy}`);
@@ -137,7 +142,7 @@ export function mirrorNotes(t: WsTransport): void {
         next.length ? `The new ones from SOMA are next to them: ${next.join(', ')}.` : '',
         both.length ? `Not updated, as the file next to it was changed too: ${both.join(', ')}.` : '',
         `Folder: ${st.folder ?? ''}`,
-      ].filter(Boolean).join(' '));
+      ].filter(Boolean).join(' '), 'kept');
     }
     shown = key;
   });

@@ -7,17 +7,20 @@ import { WebSocketServer } from 'ws';
 import { osName } from '../../app/src/main/about';
 import { logFailures, registerCommands, type Handler } from '../../app/src/main/commands';
 import { startCore, stopCore } from '../../app/src/main/core';
-import { setDialogHost, type ChooseOptions } from '../../app/src/main/dialogs';
+import { choose, setDialogHost, type ChooseOptions } from '../../app/src/main/dialogs';
 import { initLog } from '../../app/src/main/log';
 import { logsDir, pythonExe, userDataDir } from '../../app/src/main/paths';
 import { setPlatform } from '../../app/src/main/platform';
 import { ProjectController } from '../../app/src/main/projects';
-import { createProject, getLastProject } from '../../app/src/main/workspace';
+import { createProject, getAppState, getLastProject } from '../../app/src/main/workspace';
 import { SOMA_VERSION } from '../../app/src/shared/version';
-import { Files, listDir } from './files';
-import { Mirror, type MirrorModel, type MirrorSave } from './mirror';
+import type { SaveDialogOptions } from '../../app/src/main/platform';
+import type { SaveResult } from '../../app/src/shared/types';
+import { checkSaveAnswer } from '../shared/files';
+import { Files, insideRoot, listDir, makeDir } from './files';
+import { Mirror, folderName, type MirrorModel, type MirrorSave } from './mirror';
 import { authorized, handleLogin, sameOrigin, serveStatic, type AuthMode } from './http';
-import { webPlatform } from './platform';
+import { saveTarget, webPlatform } from './platform';
 import { RenderFrames } from './render';
 import { Tabs, type Conn } from './tabs';
 
@@ -48,6 +51,12 @@ const stripBase = (pathname: string) => (basePath !== '/' && pathname.startsWith
 const origins = (env.SOMA_WEB_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 /** The synced folder (mirror.ts): results of the open model as files for a sync tool. Off without the variable. */
 const mirrorDir = env.SOMA_MIRROR_DIR?.trim() ? path.resolve(env.SOMA_MIRROR_DIR.trim()) : null;
+if (mirrorDir) fs.mkdirSync(mirrorDir, { recursive: true });
+/**
+ * The synced folder is the models' home when the dialogs show it too (below SOMA_WEB_FILES; in a Coder workspace both are
+ * the same folder): a new model asks for its name and gets its folder at once, saving goes into that folder.
+ */
+const modelHome = mirrorDir && insideRoot(filesRoot, mirrorDir) ? mirrorDir : null;
 
 function authMode(): AuthMode {
   if (env.SOMA_WEB_AUTH === 'proxy') {
@@ -83,6 +92,8 @@ fs.mkdirSync(userData, { recursive: true });
 const auth = authMode();
 
 let ctl: ProjectController | null = null;
+/** The mirror while the synced folder is on (withMirror). */
+let mirrorRef: Mirror | null = null;
 const handlers = new Map<string, Handler>();
 const listeners = new Map<string, Handler>();
 
@@ -91,7 +102,7 @@ let running = 0;
 /** Has the session been opened with a model yet (test mode opens one at the first page, as the desktop at its window)? */
 let testOpened = false;
 
-const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session : env.SOMA_TEST_START === 'home' && !ctl?.session }), {
+const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session : env.SOMA_TEST_START === 'home' && !ctl?.session, ...(modelHome ? { modelHome: true } : {}) }), {
   message(conn, msg) {
     if (msg.t === 'send') {
       if (conn.role === 'render') { renderEvents(conn, msg.ch, msg.args); return; }
@@ -124,7 +135,7 @@ const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session :
 
 const files = new Files(userData, (url, name) => tabs.request('web:download', [url, name]));
 const renderFrames = new RenderFrames(tabs);
-const platformHost = webPlatform({ appDir: APP_DIR, userData, filesRoot }, tabs, files, renderFrames);
+const platformHost = webPlatform({ appDir: APP_DIR, userData, filesRoot, modelHome }, tabs, files, renderFrames);
 setPlatform(mirrorDir ? withMirror(platformHost, mirrorDir) : platformHost);
 // As Electron's main process: an error nobody caught is in the log (log.ts writes it), the server keeps running
 process.on('uncaughtException', () => {});
@@ -145,8 +156,10 @@ initLog(logsDir(), {
 function withMirror(host: ReturnType<typeof webPlatform>, root: string): ReturnType<typeof webPlatform> {
   const mirror = new Mirror(root, {
     versions: env.SOMA_MIRROR_VERSIONS !== '0',
+    home: !!modelHome,
     onStatus: (s) => tabs.emit('web:mirror', [s]),
   });
+  mirrorRef = mirror;
   handlers.set('web:mirrorStatus', () => mirror.status());
   /** The open model as the page was told last (project:changed), and what waits to be synced for it. */
   let model: MirrorModel | null = null;
@@ -156,7 +169,7 @@ function withMirror(host: ReturnType<typeof webPlatform>, root: string): ReturnT
     if (timer) { clearTimeout(timer); timer = null; }
     if (model) {
       // The name as it is now: saving under a new file name renames the model without telling the page
-      try { if (ctl?.session?.id === model.id) model = { ...model, name: ctl.info().name }; } catch { /* the last one known */ }
+      try { if (ctl?.session?.id === model.id) model = { ...model, name: ctl.info().name, file: getAppState(model.id).zipPath ?? null }; } catch { /* the last one known */ }
       void mirror.sync(model, save);
     }
     save = undefined;
@@ -165,9 +178,10 @@ function withMirror(host: ReturnType<typeof webPlatform>, root: string): ReturnT
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, 1000);
   };
-  console.log(`[web] synced folder: ${root}`);
+  console.log(`[web] synced folder: ${root}${modelHome ? ' (the models\' home)' : ''}`);
   return {
     ...host,
+    ...(modelHome ? { showSaveDialog: (o: SaveDialogOptions) => (isModelSave(o) && saving ? saveModelDialog(mirror, saving.saveAs, o) : host.showSaveDialog(o)) } : {}),
     send(channel, ...args) {
       host.send(channel, ...args);
       const a = args[0] as Record<string, unknown> | undefined;
@@ -187,6 +201,88 @@ function withMirror(host: ReturnType<typeof webPlatform>, root: string): ReturnT
       }
     },
   };
+}
+
+// ---- The models' home (modelHome) -------------------------------------------------------------------------------------
+
+/** A save of the model is running (project:save), Save as or not: its dialog is the one for the model's folder. */
+let saving: { saveAs: boolean } | null = null;
+
+const isModelSave = (o: SaveDialogOptions) => !!o.filters?.some((f) => f.extensions.includes('soma'));
+
+function currentModel(c: ProjectController): MirrorModel {
+  const s = c.session;
+  if (!s) throw new Error('No model is open.');
+  const info = c.info();
+  return { id: s.id, name: info.name, dir: info.dir, file: getAppState(s.id).zipPath ?? null };
+}
+
+async function saveModel(c: ProjectController, saveAs: boolean): Promise<SaveResult> {
+  saving = { saveAs };
+  const id = c.session?.id;
+  // The model has its new name by now (or the save was canceled): the mirror follows the model's name again
+  try { return await c.save(saveAs); } finally { saving = null; if (id) mirrorRef?.release(id); }
+}
+
+/**
+ * Where the model is saved (projects.ts asks only when it has no file yet, its folder is gone, or for Save as):
+ * <model folder>/<its name>.soma, without asking. Save as asks in the folder of the model: the same name saves there, a new
+ * name moves the model to the folder of that name (the folder moves along when all in it is SOMA's, mirror.ts claim), or
+ * a place on the server, or a download, as everywhere.
+ */
+async function saveModelDialog(mirror: Mirror, saveAs: boolean, o: SaveDialogOptions): Promise<string | null> {
+  if (!ctl) return null;
+  const model = currentModel(ctl);
+  const folder = await mirror.claim(model);
+  const file = `${path.basename(folder)}.soma`;
+  // A file of the user's of that name stays, unless the user says to replace it
+  const allowed = async (dir: string, name: string) => (await mirror.mayWrite(dir, name)) || (await choose({
+    title: 'Save model', message: `${name} in ${path.basename(dir)} is not a file SOMA saved there. Replace it?`, detail: path.join(dir, name), buttons: ['Replace', 'Cancel'],
+  })) === 0;
+  if (!saveAs && (await mirror.mayWrite(folder, file))) return path.join(folder, file);
+  const req = { ...o, name: file, defaultPath: folder, root: filesRoot, mkdir: true, model: { name: path.basename(folder), folder } };
+  const a = checkSaveAnswer(await tabs.request('web:saveDialog', [req], true), true);
+  if (a?.kind !== 'model') return saveTarget(filesRoot, files, a, file);
+  const name = folderName(a.name.replace(/\.soma$/i, '').trim(), '');
+  if (!name) return null;
+  const dir = name === path.basename(folder) ? folder : await mirror.claim({ ...model, name }, { moveFile: true });
+  const dest = `${path.basename(dir)}.soma`;
+  return (await allowed(dir, dest)) ? path.join(dir, dest) : null;
+}
+
+function registerHome(c: ProjectController, mirror: Mirror): void {
+  // Saving goes through saveModelDialog above
+  handlers.set('project:save', logFailures('project:save', (saveAs?: unknown) => saveModel(c, !!saveAs)));
+  /** Is a name free for a new model (or the open one, `current`)? The name as a folder name and the first free one. */
+  handlers.set('web:modelName', (name: unknown, current?: unknown) => mirror.suggestName(String(name ?? ''), current ? c.session?.id : undefined));
+  /** "New model" with the name the page asked for: the model and its folder. */
+  handlers.set('web:createModel', logFailures('web:createModel', async (name: unknown) => {
+    const n = folderName(String(name ?? '').trim(), '');
+    if (!n) throw new Error('The model needs a name.');
+    if (mirror.suggestName(n).free !== n) throw new Error(`There is a folder "${n}" in ${mirror.root} already. Choose another name.`);
+    const info = await c.create(n);
+    await mirror.claim({ id: info.id, name: info.name, dir: info.dir });
+    mirror.release(info.id);
+    return info;
+  }));
+  /** Download: the model file as saved last, saved first when there are changes (no file yet, unsaved changes). */
+  handlers.set('web:downloadModel', logFailures('web:downloadModel', async () => {
+    if (c.info().folder) return { ok: false, error: 'This model is a folder: Export › Everything as ZIP downloads a copy.' };
+    let st = await c.saveState();
+    let saved = false;
+    if (st.unsaved || !st.zipPath || !fs.existsSync(st.zipPath)) {
+      const r = await saveModel(c, false);
+      if (r.cancelled) return { ok: false, canceled: true };
+      if (r.error) return { ok: false, error: r.error };
+      saved = true;
+      st = await c.saveState();
+    }
+    if (!st.zipPath) return { ok: false, error: 'The model has no file.' };
+    // A model file in the download area goes to the browser after the save anyway (deliverChanged)
+    if (!(saved && files.staged(st.zipPath))) await files.deliver(st.zipPath);
+    return { ok: true, name: path.basename(st.zipPath) };
+  }));
+  handlers.set('web:mkdir', (parent: unknown, name: unknown) => makeDir(filesRoot, parent, name));
 }
 
 // ---- Questions in the page (dialogs.ts), as hostDialogs in main.ts of the desktop ---------------------------------------
@@ -257,6 +353,7 @@ function registerAll(c: ProjectController): void {
   if (testMode) handlers.set('test:size', (w: unknown, h: unknown) => tabs.request('web:testSize', [Number(w), Number(h)]));
   // The file dialogs of the page (web/client/files.ts) browse the server below filesRoot
   handlers.set('web:listDir', (dir: unknown) => listDir(filesRoot, dir));
+  if (modelHome && mirrorRef) registerHome(c, mirrorRef);
 }
 
 // ---- HTTP and WebSocket ----------------------------------------------------------------------------------------------------

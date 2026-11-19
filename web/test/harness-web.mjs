@@ -41,6 +41,8 @@ export async function startWebApp({ userData, watchdogMs = (Number(process.env.S
   const context = await browser.newContext({ viewport: { width: 1600, height: 950 }, acceptDownloads: true });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://127.0.0.1:${port}` });
   const p = await context.newPage();
+  // window.soma.test.size (narrow windows, test/compact.mjs): the page cannot resize its window, the harness can
+  await p.exposeFunction('__somaTestSize', (w, h) => p.setViewportSize({ width: Math.round(w), height: Math.round(h) }));
   const errors = [];
   p.on('pageerror', (e) => errors.push(e.message));
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

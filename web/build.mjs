@@ -1,5 +1,6 @@
 // Builds the web version into dist/: the server (dist/server.js) and the pages for the browser (dist/public/). The
 // renderer, its assets and the main process come from app/ unchanged (app/esbuild.config.mjs).
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,21 @@ const polyfill = `(() => {
 })();`;
 const page = { banner: { js: polyfill } };
 
+/**
+ * Which code this is (the server shows it on the start page and at /health): the commit, its branch, and whether files
+ * differed from it. Without Git (the image's build context has no .git) SOMA_COMMIT and SOMA_BRANCH tell it.
+ */
+function buildInfo() {
+  const git = (...args) => {
+    try { return execFileSync('git', args, { cwd: WEB, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return ''; }
+  };
+  const commit = process.env.SOMA_COMMIT || git('rev-parse', '--short=12', 'HEAD');
+  const branch = process.env.SOMA_BRANCH || git('rev-parse', '--abbrev-ref', 'HEAD');
+  // Only the code that is built: app/, web/, python/ (a changed README makes no different server)
+  const dirty = !process.env.SOMA_COMMIT && !!commit && git('status', '--porcelain', '--', '../app', '../web', '../python') !== '';
+  return { commit: commit || null, branch: branch && branch !== 'HEAD' ? branch : null, dirty, built: new Date().toISOString() };
+}
+
 fs.rmSync(at('dist'), { recursive: true, force: true });
 await Promise.all([
   // Server: node-pty and dugite stay outside as on the desktop (dugite finds its Git relative to its package), they are
@@ -39,4 +55,5 @@ await Promise.all([
   buildPdfWorker(pub, page),
 ]);
 writeComponents(at('dist', 'components.json'));
+fs.writeFileSync(at('dist', 'build.json'), JSON.stringify(buildInfo()));
 copyRendererAssets(pub);

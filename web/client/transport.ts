@@ -1,10 +1,10 @@
 import type { ApiEnv, Transport } from '../../app/src/shared/api';
 
-/** What the server says about the session (the platform the page knows itself). */
-export type ServerEnv = Omit<ApiEnv, 'platform'>;
+/** What the server says about the session (the platform the page knows itself), and what only the web version needs. */
+export type ServerEnv = Omit<ApiEnv, 'platform'> & Omit<WelcomeEnv, keyof ApiEnv>;
 import { decode, encode } from '../shared/codec';
 import { uploadDropped } from './files';
-import { PROTOCOL, type ClientMessage, type Role, type ServerMessage } from '../shared/protocol';
+import { PROTOCOL, type ClientMessage, type Role, type ServerMessage, type WelcomeEnv } from '../shared/protocol';
 
 export interface TransportEvents {
   /** The connection is lost; it is tried again. */

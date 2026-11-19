@@ -16,7 +16,11 @@ COPY web/package.json web/package-lock.json web/
 RUN cd web && npm ci --no-audit --no-fund --omit=dev
 COPY app app
 COPY web web
-RUN cd web && node build.mjs && cd ../app && npm prune --omit=dev --no-audit --no-fund
+# Which code the image runs (start page, /health): the build context has no .git, so it comes in from outside, e.g.
+#   docker build --build-arg SOMA_COMMIT=$(git rev-parse --short=12 HEAD) --build-arg SOMA_BRANCH=$(git branch --show-current) …
+ARG SOMA_COMMIT=
+ARG SOMA_BRANCH=
+RUN cd web && SOMA_COMMIT=$SOMA_COMMIT SOMA_BRANCH=$SOMA_BRANCH node build.mjs && cd ../app && npm prune --omit=dev --no-audit --no-fund
 
 # ---- Python: CadQuery, soma and CalculiX, pinned as for the desktop app (python/requirements-base.txt) -----------------
 FROM debian:bookworm-slim AS python

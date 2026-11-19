@@ -1,6 +1,6 @@
 import type { WebSocket } from 'ws';
 import { decode, encode } from '../shared/codec';
-import { PROTOCOL, validClientMessage, type ClientMessage, type Role, type ServerMessage } from '../shared/protocol';
+import { PROTOCOL, validClientMessage, type ClientMessage, type Role, type ServerMessage, type WelcomeEnv } from '../shared/protocol';
 
 /** Events kept for a page that lost its connection for a moment, at most this many bytes. More: the page has to reload. */
 const MAX_WAITING = 32 * 1024 * 1024;
@@ -42,7 +42,7 @@ export class Tabs {
   private requests = new Map<number, { conn: ConnImpl; resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: NodeJS.Timeout }>();
   readonly renders = new Set<Conn>();
 
-  constructor(private readonly env: () => { testMode: boolean; startsHome: boolean }, private readonly events: TabEvents) {}
+  constructor(private readonly env: () => WelcomeEnv, private readonly events: TabEvents) {}
 
   /** Who has the session right now. */
   get active(): Conn | null { return this.main; }

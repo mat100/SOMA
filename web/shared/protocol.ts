@@ -17,8 +17,14 @@ export type ClientMessage =
   /** Answer to a `request` of the server. */
   | { t: 'reply'; id: number; ok: boolean; value?: unknown; error?: string };
 
+/** Which code the server runs (dist/build.json, written by build.mjs); null fields when the build could not tell. */
+export interface BuildInfo { commit: string | null; branch: string | null; dirty: boolean; built: string }
+
+/** What the page learns about the server when it connects. `build`: which code it runs (shown next to the version). */
+export interface WelcomeEnv { testMode: boolean; startsHome: boolean; build?: BuildInfo }
+
 export type ServerMessage =
-  | { t: 'welcome'; env: { testMode: boolean; startsHome: boolean }; resumed: boolean }
+  | { t: 'welcome'; env: WelcomeEnv; resumed: boolean }
   | { t: 'result'; id: number; ok: true; value: unknown }
   | { t: 'result'; id: number; ok: false; error: string }
   | { t: 'event'; ch: string; args: unknown[] }

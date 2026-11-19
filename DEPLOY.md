@@ -5,6 +5,10 @@ on their way upstream and those that stay with us. This file exists only on this
 
 ## Rules
 
+- Every development branch ends up here: `deploy` is where they all meet. A branch that is not merged into `deploy` is
+  not part of our installation.
+- No pull request is ever opened from `deploy` (it holds everything, including what stays with us). Pull requests to
+  upstream come from the feature branches only.
 - `deploy` only moves forward by merges: no rebase, no force push. Coder templates and installations follow it.
 - Every change has a branch of its own and comes in with `git merge --no-ff <branch>`. Nothing is committed on `deploy`
   directly, except merge resolutions and this file.

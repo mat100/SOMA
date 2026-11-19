@@ -129,6 +129,18 @@ The models live on the server. What the desktop does with a dialog of the system
 - **Show in folder / open with another program**: the file is downloaded.
 - Dropping files from the computer into the window uploads them (folders: as a ZIP or through Import).
 
+## Which code runs
+
+`npm run build` writes the commit, its branch and whether `app/`, `web/` or `python/` had uncommitted changes into
+`dist/build.json`. The server prints it when it starts, the start page shows it next to the version (`deploy 83b46cf`,
+a `+` for uncommitted changes), and `GET /health` answers without the token:
+
+```
+{"ok":true,"version":"0.11.0","commit":"83b46cf3a1c2","branch":"deploy","dirty":false,"built":"2026-11-19T16:00:00.000Z"}
+```
+
+So a check after a deployment can tell whether a change is in it. The code is public (GPL), its commit is no secret.
+
 ## Container
 
 `web/Dockerfile` builds an image with the server, Python 3.12 with CadQuery and `soma` (pinned as
@@ -160,6 +172,7 @@ asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same contai
 | `SOMA_PYTHON` | `python3` in `PATH` | Python with `soma` and CadQuery (as for the desktop app) |
 | `SOMA_MIRROR_DIR` | off | Synced folder: results of the open model as files for a sync tool (see above) |
 | `SOMA_MIRROR_VERSIONS` | `1` | `0`: no `versions/` folder at each save |
+| `SOMA_COMMIT`, `SOMA_BRANCH` | from Git | Only for `npm run build`: which code is built, when there is no `.git` (the image) |
 
 ## Structure
 

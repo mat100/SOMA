@@ -23,6 +23,7 @@ import { authorized, handleLogin, sameOrigin, serveStatic, type AuthMode } from 
 import { saveTarget, webPlatform } from './platform';
 import { RenderFrames } from './render';
 import { Tabs, type Conn } from './tabs';
+import type { BuildInfo } from '../shared/protocol';
 
 /*
  * SOMA in the browser: this server is what the main process of the desktop app is (src/main, unchanged), the browser tab
@@ -35,6 +36,16 @@ const APP_DIR = path.resolve(WEB_DIR, '..', 'app');
 const PUBLIC_DIR = path.join(WEB_DIR, 'dist', 'public');
 
 const env = process.env;
+/** Which code runs here (build.mjs writes it next to server.js); null when the file is missing or unreadable. */
+const build: BuildInfo | null = (() => {
+  try {
+    const b = JSON.parse(fs.readFileSync(path.join(WEB_DIR, 'dist', 'build.json'), 'utf8')) as Partial<BuildInfo>;
+    const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+    return { commit: str(b.commit), branch: str(b.branch), dirty: b.dirty === true, built: str(b.built) ?? '' };
+  } catch { return null; }
+})();
+/** "deploy 83b46cf3a1c2 (changed)": for the log and the start page. */
+const buildLabel = build?.commit ? `${build.branch ? `${build.branch} ` : ''}${build.commit}${build.dirty ? ' (changed)' : ''}` : '';
 const host = env.SOMA_WEB_HOST || '127.0.0.1';
 const port = Number(env.SOMA_WEB_PORT) || 5173;
 const userData = env.SOMA_USER_DATA || path.join(os.homedir(), '.soma-web');
@@ -102,7 +113,11 @@ let running = 0;
 /** Has the session been opened with a model yet (test mode opens one at the first page, as the desktop at its window)? */
 let testOpened = false;
 
-const tabs = new Tabs(() => ({ testMode, startsHome: !testMode ? !ctl?.session : env.SOMA_TEST_START === 'home' && !ctl?.session, ...(modelHome ? { modelHome: true } : {}) }), {
+const tabs = new Tabs(() => ({
+  testMode, startsHome: !testMode ? !ctl?.session : env.SOMA_TEST_START === 'home' && !ctl?.session,
+  ...(modelHome ? { modelHome: true } : {}),
+  ...(build ? { build } : {}),
+}), {
   message(conn, msg) {
     if (msg.t === 'send') {
       if (conn.role === 'render') { renderEvents(conn, msg.ch, msg.args); return; }
@@ -144,7 +159,7 @@ process.env.SOMA_USER_DATA = userData;
 
 initLog(logsDir(), {
   version: SOMA_VERSION, system: `${osName()} ${process.arch}`, web: `Node.js ${process.versions.node}`,
-  python: pythonExe(), appData: userDataDir(),
+  python: pythonExe(), appData: userDataDir(), build: buildLabel || null,
 });
 
 // ---- Synced folder (mirror.ts) --------------------------------------------------------------------------------------------
@@ -363,9 +378,16 @@ function requestUrl(req: http.IncomingMessage): URL | null {
   try { return new URL(req.url ?? '/', 'http://localhost'); } catch { return null; }
 }
 
+function health(res: http.ServerResponse, head: boolean): void {
+  const body = JSON.stringify({ ok: true, version: SOMA_VERSION, ...(build ?? {}) });
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }).end(head ? undefined : body);
+}
+
 const server = http.createServer((req, res) => {
   const url = requestUrl(req);
   if (!url) { res.writeHead(400).end(); return; }
+  // Whether the server runs and which code: for checks after a deployment, without the token (the code is public)
+  if (stripBase(url.pathname) === '/health' && (req.method === 'GET' || req.method === 'HEAD')) { health(res, req.method === 'HEAD'); return; }
   if (handleLogin(req, res, url, auth)) return;
   if (!authorized(req, auth)) {
     res.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -406,7 +428,7 @@ void (async () => {
   registerAll(ctl);
   server.listen(port, host, () => {
     const where = `http://${host.includes(':') ? `[${host}]` : host}:${port}/`;
-    console.log(`[web] SOMA ${SOMA_VERSION} on ${where}${auth.kind === 'token' ? `?token=${auth.token}` : ' (authentication by the proxy)'}`);
+    console.log(`[web] SOMA ${SOMA_VERSION}${buildLabel ? ` (${buildLabel})` : ''} on ${where}${auth.kind === 'token' ? `?token=${auth.token}` : ' (authentication by the proxy)'}`);
   });
 })();
 

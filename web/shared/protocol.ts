@@ -17,11 +17,15 @@ export type ClientMessage =
   /** Answer to a `request` of the server. */
   | { t: 'reply'; id: number; ok: boolean; value?: unknown; error?: string };
 
+/** Which code the server runs (dist/build.json, written by build.mjs); null fields when the build could not tell. */
+export interface BuildInfo { commit: string | null; branch: string | null; dirty: boolean; built: string }
+
 /**
  * What the page learns about the server when it connects. `modelHome`: the synced folder is the models' home (a new model
- * asks for its name first, saving goes to its folder, see web/server/main.ts).
+ * asks for its name first, saving goes to its folder, see web/server/main.ts). `build`: which code it runs (shown next to
+ * the version).
  */
-export interface WelcomeEnv { testMode: boolean; startsHome: boolean; modelHome?: boolean }
+export interface WelcomeEnv { testMode: boolean; startsHome: boolean; modelHome?: boolean; build?: BuildInfo }
 
 export type ServerMessage =
   | { t: 'welcome'; env: WelcomeEnv; resumed: boolean }

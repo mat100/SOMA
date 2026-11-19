@@ -104,6 +104,16 @@ test('without the token no page; the token gives a cookie and a redirect without
   assert.match(await page.text(), /<script src="main.js">/);
 });
 
+test('/health without the token: the server runs, with version and commit', async () => {
+  const r = await fetch(`${base}health`);
+  assert.equal(r.status, 200);
+  const h = await r.json() as { ok: boolean; version: string; commit: string | null; dirty: boolean };
+  assert.equal(h.ok, true);
+  assert.match(h.version, /^\d+\.\d+\.\d+$/);
+  assert.match(h.commit ?? '', /^[0-9a-f]{12}$/);
+  assert.equal(typeof h.dirty, 'boolean');
+});
+
 test('static files stay inside their folder', async () => {
   const r = await fetch(`${base}..%2f..%2fpackage.json`, { headers: { Cookie: cookie } });
   assert.equal(r.status, 404);
@@ -117,7 +127,10 @@ test('WebSocket: refused without cookie or from another origin', async () => {
 test('requests reach the main process, errors come back as with Electron', async () => {
   const a = await tab('page-a');
   const w = await a.next((m) => m.t === 'welcome') as Extract<ServerMessage, { t: 'welcome' }>;
-  assert.deepEqual(w.env, { testMode: false, startsHome: true });
+  const { build, ...rest } = w.env;
+  assert.deepEqual(rest, { testMode: false, startsHome: true });
+  // Which code runs: build.mjs wrote it (a checkout has a commit)
+  assert.match(build?.commit ?? '', /^[0-9a-f]{12}$/);
   assert.equal(w.resumed, false);
   const settings = await a.invoke('settings:get') as { settings: unknown };
   assert.ok(settings.settings, 'settings of the app');

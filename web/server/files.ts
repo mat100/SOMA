@@ -72,6 +72,9 @@ export class Files {
     // Links do not survive a restart
     fs.rmSync(this.links, { recursive: true, force: true });
     this.sweep();
+    // What is in the download area from before this start went to the browser then (or is a model file kept there):
+    // offered again only when it changes, not as a download at the first request after every restart
+    this.forEachStaged((abs) => { const sig = signature(abs); if (sig) this.delivered.set(abs, sig); });
     setInterval(() => this.sweep(), 60 * 60_000).unref();
   }
 
@@ -130,19 +133,24 @@ export class Files {
    * still writing its files must not go out half done.
    */
   async deliverChanged(): Promise<void> {
+    const changed: [string, string][] = [];
+    this.forEachStaged((abs) => { const sig = signature(abs); if (sig && this.delivered.get(abs) !== sig) changed.push([abs, sig]); });
+    for (const [abs, sig] of changed) {
+      // Counted as delivered only when the browser took it: otherwise the next request offers it again
+      try { await this.deliver(abs); this.delivered.set(abs, sig); } catch (err) { console.warn('[web] download:', err); }
+    }
+  }
+
+  /** Each finished file or folder in the download area (`<place>/<name>`). */
+  private forEachStaged(fn: (abs: string) => void): void {
     let dirs: string[];
     try { dirs = fs.readdirSync(this.downloads); } catch { return; }
     for (const d of dirs) {
       let entries: string[];
       try { entries = fs.readdirSync(path.join(this.downloads, d)); } catch { continue; }
       for (const e of entries) {
-        const abs = path.join(this.downloads, d, e);
         // Written through a temporary file (.part, see render.ts and zip.ts): only finished files count
-        if (/\.(part|tmp)$/i.test(e)) continue;
-        const sig = signature(abs);
-        if (!sig || this.delivered.get(abs) === sig) continue;
-        // Counted as delivered only when the browser took it: otherwise the next request offers it again
-        try { await this.deliver(abs); this.delivered.set(abs, sig); } catch (err) { console.warn('[web] download:', err); }
+        if (!/\.(part|tmp)$/i.test(e)) fn(path.join(this.downloads, d, e));
       }
     }
   }

@@ -22,11 +22,21 @@ on their way upstream and those that stay with us. This file exists only on this
 
 ## Branches in it
 
-| Branch | Base | Upstream? | What |
-|---|---|---|---|
-| `linux-watcher-fix` | upstream `main` | PR 1 (issue #14) | File watching on Linux |
-| `platform-interface` | upstream `main` | PR 2 | The main process behind `platform.ts` |
-| `web` | `platform-interface` | PR 3 | The web version (`web/`) |
-| `web-mirror` | `web` | no | Synced folder for results (`SOMA_MIRROR_DIR`, Coder Desktop file sync) |
-| `somaai-claude-subscription` | `web` | not yet decided | SOMA AI sign-in with a Claude Pro/Max plan |
-| `web-model-folder` | `web-mirror` | no | The synced folder as the models' home |
+Pull requests to upstream (agreed in issue #14, in this order; each one rebased onto the current upstream `main` and
+the one before it right before it is opened):
+
+| Branch | Base | PR | What | Still to do before the PR |
+|---|---|---|---|---|
+| `linux-watcher-fix` | upstream `main` | 1 | File watching on Linux | Rebase (CHANGELOG conflict); upstream must let us open PRs |
+| `platform-interface` | upstream `main` | 2 | The main process behind `platform.ts`, incl. voice input | Rebase; port `versions:cancelPreview` and `test:size` into `commands.ts`/`api.ts` (done in the merge into `deploy`) |
+| `web` | `platform-interface` | 3 | The web version (`web/`) and its test fixes in `app/test` | Rebase onto PR 2; Linux job for the web tests in `.github/workflows/checks.yml` |
+
+Ours only, never a pull request:
+
+| Branch | Base | What |
+|---|---|---|
+| `somaai-claude-subscription` | `web` | SOMA AI: sign-in with a Claude Pro/Max plan; may use the temp folder and read system files without asking |
+| `web-synced-folder` | `web` | Synced folder (`SOMA_MIRROR_DIR`, Coder Desktop file sync): results of each model, and the folder as the models' home |
+
+Old, kept until the pull requests are merged (their content is in the branches above, rebased): `web-version`,
+`web-mirror` (now part of `web-synced-folder`), `backup/*`.

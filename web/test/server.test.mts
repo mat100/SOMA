@@ -32,6 +32,9 @@ before(async () => {
   fs.mkdirSync(path.join(filesRoot, 'models'));
   fs.writeFileSync(path.join(filesRoot, 'models', 'a.step'), 'x');
   fs.symlinkSync('/etc', path.join(filesRoot, 'models', 'out'));
+  // A download from before a restart: the browser got it then, it is not offered again
+  fs.mkdirSync(path.join(userData, 'downloads', 'before-restart'), { recursive: true });
+  fs.writeFileSync(path.join(userData, 'downloads', 'before-restart', 'Old.soma'), 'x');
   const port = await freePort();
   base = `http://127.0.0.1:${port}/`;
   server = spawn(process.execPath, [path.join(WEB, 'bin', 'soma-web.cjs')], {
@@ -137,6 +140,7 @@ test('requests reach the main process, errors come back as with Electron', async
   assert.ok(Array.isArray(await a.invoke('project:list')));
   await assert.rejects(a.invoke('nope:nothing'), /Error invoking remote method 'nope:nothing'/);
   await assert.rejects(a.invoke('fs:list'), /No project open/);
+  await assert.rejects(a.next((m) => m.t === 'request' && m.ch === 'web:download', 1500), /Timeout/, 'what was staged before the start is not downloaded again');
   a.ws.close();
   await a.closed;
 });

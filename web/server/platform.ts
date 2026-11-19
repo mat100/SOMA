@@ -1,6 +1,7 @@
+import { fork } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { OpenDialogOptions, Platform, SaveDialogOptions } from '../../app/src/main/platform';
+import type { OpenDialogOptions, Platform, SaveDialogOptions, WorkerProcess } from '../../app/src/main/platform';
 import { checkOpenAnswer, checkSaveAnswer } from '../shared/files';
 import { insideRoot, type Files } from './files';
 import type { RenderFrames } from './render';
@@ -76,6 +77,19 @@ export function webPlatform(cfg: WebConfig, tabs: Tabs, files: Files, renders: R
     fetch: (url, init) => fetch(url, init),
     // In the user's tab, with the GPU of their computer (render.ts)
     openRenderWindow: (events) => renders.open(events),
+    // The browser asks for the microphone itself (getUserMedia in the page): nothing for the server to allow
+    microphoneAccess: async () => ({ ok: true }),
+    // A Node child process; 'advanced' serialization copies messages as Electron's utility process does (Float32Array)
+    forkWorker: (script, args): WorkerProcess => {
+      const p = fork(script, args, { stdio: ['ignore', 'pipe', 'pipe', 'ipc'], serialization: 'advanced' });
+      return {
+        stdout: p.stdout, stderr: p.stderr,
+        postMessage: (m) => { if (p.connected) p.send(m as never); },
+        kill: () => { p.kill(); },
+        on: (event: 'message' | 'exit', cb: (v: never) => void) => { p.on(event, cb as (v: unknown) => void); },
+        once: (event, cb) => { p.once(event, cb); },
+      };
+    },
   };
 }
 

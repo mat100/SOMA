@@ -47,11 +47,38 @@ library `soma`. Only what Electron did is replaced. Projects are the same `.soma
   next new result. Nothing in the folder is ever deleted, `versions/` included: it grows with each save.
 - Files are written through a temporary file and renamed, so the sync never picks up half a file.
 - The folder is named after the model. A folder of that name that belongs to another model or to the user is left alone:
-  then the name gets the start of the model's ID. A renamed model starts a new folder, the old one stays.
+  then the name gets the start of the model's ID (`<name> (2)`, … when the folder is the models' home, see below). A
+  folder with a `.soma-mirror.json` SOMA cannot read is never taken.
+- A renamed model starts a new folder, the old one stays (as the models' home it moves along, see below).
 - A model opened as a folder ("Open folder") has no saves: only its results are copied.
 - Known limits: two saves within about a second make one version folder; a file changed on the computer in the very
   moment SOMA replaces it can be lost (the sync tool reports such conflicts itself); names differing only in case
   collide on Windows and macOS.
+
+### The models' home (`SOMA_MIRROR_DIR` below `SOMA_WEB_FILES`)
+
+When the dialogs show the synced folder too (in a Coder workspace both variables are the same folder), the folder of a
+model is where the model lives for the user, not only a copy of its results. The working copy stays in the app data
+(`<app data>/workspaces/`, with its Git history) as before.
+
+- **New model** asks for the name first (Enter takes it) and makes `<name>/` at once. The name is cleaned like a folder
+  name. When a folder of that name belongs to another model or to the user, the next free name (`<name> (2)`) is offered.
+  The tutorial and a model from a CadQuery script keep their names, their folder gets a number when the name is taken.
+- **Save** (Ctrl+S) of a model without a model file saves `<name>/<name>.soma` without a dialog. The file is noted in
+  `.soma-mirror.json` as SOMA's and never copied onto itself. A model opened from a `.soma` elsewhere under the folder
+  (copied in on the computer, the sync brings it) is saved back to that file, as on the desktop, and not copied a second
+  time into its model folder. A folder of the user's that holds the opened file becomes the model's folder (nothing of
+  the user's is replaced in it). A `<name>.soma` of the user's in the folder is replaced only after asking.
+- **Save as** starts with the model name: the same name saves in its folder, a new name moves the model to the folder of
+  that name. The folder is renamed when everything in it is SOMA's (the files it wrote and nobody changed, `versions/`,
+  `.soma-mirror.json`) and it still has the name SOMA gave it; the old model file in it becomes `<new name>.soma` and is
+  saved over. Otherwise the old folder stays as it is, the model gets a new one and the page says so once. Save elsewhere on the server and Download are the other buttons.
+- **Download …** in the model menu: the model file to the computer, saved first when there are changes. Saving itself does
+  not download any more.
+- **Open** starts in the folder browser, in the synced folder, with Upload from this computer as a button.
+- The folder browser of the dialogs has **New folder** (only below `SOMA_WEB_FILES`, plain names, no links followed).
+
+Without `SOMA_MIRROR_DIR`, or with it outside `SOMA_WEB_FILES`, new models are "New model" and saving asks as before.
 
 ### In a Coder workspace
 
@@ -62,6 +89,8 @@ resource "coder_agent" "main" {
   # …
   env = {
     SOMA_MIRROR_DIR = "/home/coder/SOMA-files"
+    # The same folder for the dialogs: the models live there (see "The models' home")
+    SOMA_WEB_FILES  = "/home/coder/SOMA-files"
   }
   startup_script = <<-EOT
     mkdir -p /home/coder/SOMA-files
@@ -143,11 +172,12 @@ asks for the token: `SOMA_WEB_AUTH=proxy` is only for a proxy in the same contai
   writes there goes to the browser, again after each change), download links as copies, the folders for the dialogs.
 - `client/files.ts`: the file dialogs in the page: upload or a file on the server, download or a place on the server.
 - `client/main.ts`: `window.soma` on the WebSocket, then the renderer of the desktop app. `client/webui.ts`: what only
-  the web version shows (connection lost, session taken over).
+  the web version shows (connection lost, session taken over). `client/home.ts`: the models' home (name of a new model,
+  Download in the model menu).
 - `shared/codec.ts`: messages as binary frames, keeps what Electron's IPC keeps (ArrayBuffer, typed arrays, `undefined`).
 - `shared/protocol.ts`: the messages. `shared/files.ts`: the answers of the file dialogs, checked on the server.
 - `bin/soma-web.cjs`: starts `dist/server.js` with the packages of `app/`.
 - `test/`: unit tests (`unit.test.mts`, `mirror.test.mts`), the built server over HTTP and WebSocket (`server.test.mts`), the page in
-  Chromium (`browser.test.mts`: file dialogs, dropped files, lost connection, second tab, Alt shortcuts, closing, synced folder), and
+  Chromium (`browser.test.mts`: file dialogs, dropped files, lost connection, second tab, Alt shortcuts, closing, synced folder, the models' home on a second server), and
   `harness-web.mjs`: the suites of the desktop app against the web, `SOMA_TEST_TARGET=web node test/run-all.mjs` in `app/`.
 - `Dockerfile`: the image (one container per user).
